@@ -158,6 +158,32 @@ npm run publish:win
 
 `electron-builder` 会生成 Windows 安装包和 `latest.yml`，并发布到 GitHub Releases。用户安装这个版本后，后续每次你提升版本号并重新运行 `npm run publish:win`，用户端就能检查并下载安装更新。
 
+后续更新发布：
+
+```bash
+git status
+git add .
+git commit -m "你的更新说明"
+npm version patch
+git push
+git push --tags
+```
+
+这些命令的作用：
+
+- `git status`：查看本地改了哪些文件，确认没有误提交敏感文件。
+- `git add .`：把当前改动加入待提交列表；`.env.local`、`node_modules/`、`out/`、`release/` 会被 `.gitignore` 忽略。
+- `git commit -m "你的更新说明"`：把改动保存成一次 Git 提交。
+- `npm version patch`：自动把版本号加一位，例如 `0.1.0 -> 0.1.1`，并创建 `v0.1.1` tag。
+- `git push`：推送代码提交。
+- `git push --tags`：推送版本 tag，触发 GitHub Actions 自动构建并发布新版 Windows 安装包。
+
+如果是明显的新功能，可以把 `patch` 换成 `minor`，例如 `0.1.1 -> 0.2.0`：
+
+```bash
+npm version minor
+```
+
 如果在国内网络下 GitHub 下载 Electron 或 electron-builder 二进制较慢，可以先在 PowerShell 设置镜像：
 
 ```powershell
