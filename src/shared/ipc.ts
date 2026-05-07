@@ -1,0 +1,17 @@
+export const IPC_CHANNELS = {
+  explainRegion: 'tutor:explain-region',
+  explainProgress: 'tutor:explain-progress',
+  answerDelta: 'tutor:answer-delta',
+  askFollowUp: 'tutor:ask-follow-up',
+  cancelRequest: 'tutor:cancel-request',
+  endQuestionSession: 'tutor:end-question-session',
+  getApiDefaults: 'tutor:get-api-defaults',
+  getOverlayBounds: 'tutor:get-overlay-bounds',
+  listModels: 'tutor:list-models',
+  checkForUpdates: 'tutor:check-for-updates',
+  installUpdate: 'tutor:install-update',
+  updateStatus: 'tutor:update-status',
+  getAppVersion: 'tutor:get-app-version',
+  setDebugMode: 'tutor:set-debug-mode',
+  setCaptureUiVisible: 'tutor:set-capture-ui-visible'
+} as const;
