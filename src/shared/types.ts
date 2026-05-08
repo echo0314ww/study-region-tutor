@@ -15,6 +15,7 @@ export interface RegionBounds {
 }
 
 export interface TutorSettings {
+  providerId: string;
   model: string;
   language: TutorLanguage;
   reasoningOnly: boolean;
@@ -27,10 +28,21 @@ export interface TutorSettings {
   reasoningEffort: ReasoningEffortSetting;
 }
 
+export interface ApiProviderOption {
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiMode: ApiMode;
+  hasApiKey: boolean;
+  isDefault: boolean;
+}
+
 export interface ApiRuntimeDefaults {
   apiBaseUrl: string;
   apiMode?: ApiMode;
   hasApiKey: boolean;
+  providerId: string;
+  providers: ApiProviderOption[];
 }
 
 export interface ExplainRequest {

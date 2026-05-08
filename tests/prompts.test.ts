@@ -4,6 +4,7 @@ import { buildTutorInstructions } from '../src/main/prompts';
 describe('buildTutorInstructions', () => {
   it('keeps the app framed as learning support', () => {
     const prompt = buildTutorInstructions({
+      providerId: '',
       model: 'gpt-4.1-mini',
       language: 'zh-CN',
       reasoningOnly: false,
@@ -23,6 +24,7 @@ describe('buildTutorInstructions', () => {
 
   it('supports reasoning-only mode', () => {
     const prompt = buildTutorInstructions({
+      providerId: '',
       model: 'gpt-4.1-mini',
       language: 'zh-CN',
       reasoningOnly: true,

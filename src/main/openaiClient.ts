@@ -1,5 +1,6 @@
 import type {
   ApiMode,
+  ApiProviderOption,
   ApiRuntimeDefaults,
   ModelListResult,
   ModelOption,
@@ -15,6 +16,7 @@ import {
   buildTutorTextPrompt,
   buildTutorUserPrompt
 } from './prompts';
+import { getApiProviderById, getApiProviderSummaries, parseApiMode } from './apiProviders';
 
 export interface ModelAnswer {
   text: string;
@@ -37,11 +39,16 @@ interface ApiConfig {
   model: string;
   apiMode: ApiMode;
   reasoningEffort?: ReasoningEffort;
+  providerId?: string;
+  providerName?: string;
 }
 
 interface ApiConnectionConfig {
   apiKey: string;
   baseUrl: string;
+  apiMode?: ApiMode;
+  providerId?: string;
+  providerName?: string;
 }
 
 class ThirdPartyApiError extends Error {
@@ -63,10 +70,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function parseApiMode(value: string | undefined): ApiMode {
-  return value === 'responses' ? 'responses' : 'chat-completions';
-}
-
 function requireThirdPartyBaseUrl(baseUrl: string): void {
   let url: URL;
 
@@ -84,7 +87,7 @@ function requireThirdPartyBaseUrl(baseUrl: string): void {
 export function resolveApiConfig(settings: TutorSettings): ApiConfig {
   const connection = resolveApiConnectionConfig(settings);
   const model = settings.model.trim();
-  const apiMode = settings.apiMode === 'env' ? parseApiMode(process.env.AI_API_MODE) : settings.apiMode;
+  const apiMode = settings.apiMode === 'env' ? connection.apiMode || parseApiMode(process.env.AI_API_MODE) : settings.apiMode;
   const reasoningEffort = settings.reasoningEffort === 'off' ? undefined : settings.reasoningEffort;
 
   if (!model) {
@@ -100,6 +103,28 @@ export function resolveApiConfig(settings: TutorSettings): ApiConfig {
 }
 
 function resolveApiConnectionConfig(settings: TutorSettings): ApiConnectionConfig {
+  if (settings.providerId.trim()) {
+    const provider = getApiProviderById(settings.providerId);
+
+    if (!provider) {
+      throw new Error(`没有找到当前选择的 API 服务商：${settings.providerId}。请在设置中切换到可用 API。`);
+    }
+
+    requireThirdPartyBaseUrl(provider.baseUrl);
+
+    if (!provider.apiKey) {
+      throw new Error(`API 服务商「${provider.name}」没有配置 API Key。请检查 .env.local 中该服务商的 API Key。`);
+    }
+
+    return {
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl,
+      apiMode: provider.apiMode,
+      providerId: provider.id,
+      providerName: provider.name
+    };
+  }
+
   const apiKey = settings.apiKey.trim() || process.env.AI_API_KEY || '';
   const baseUrl = settings.apiBaseUrl.trim() || process.env.AI_BASE_URL || '';
 
@@ -120,14 +145,22 @@ function resolveApiConnectionConfig(settings: TutorSettings): ApiConnectionConfi
 }
 
 export function getRuntimeApiDefaults(): ApiRuntimeDefaults {
-  const apiBaseUrl = process.env.AI_BASE_URL?.trim() || '';
-  const apiMode = process.env.AI_API_MODE ? parseApiMode(process.env.AI_API_MODE) : undefined;
+  const providers = getApiProviderSummaries();
+  const defaultProvider = providers.find((provider) => provider.isDefault) || providers[0];
+  const apiBaseUrl = defaultProvider?.baseUrl || process.env.AI_BASE_URL?.trim() || '';
+  const apiMode = defaultProvider?.apiMode || (process.env.AI_API_MODE ? parseApiMode(process.env.AI_API_MODE) : undefined);
 
   return {
     apiBaseUrl,
     ...(apiMode ? { apiMode } : {}),
-    hasApiKey: Boolean(process.env.AI_API_KEY?.trim())
+    hasApiKey: defaultProvider?.hasApiKey || Boolean(process.env.AI_API_KEY?.trim()),
+    providerId: defaultProvider?.id || '',
+    providers
   };
+}
+
+export function listApiProviders(): ApiProviderOption[] {
+  return getApiProviderSummaries();
 }
 
 function withReasoning<T extends Record<string, unknown>>(body: T, config: ApiConfig): T & { reasoning?: { effort: ReasoningEffort } } {
@@ -228,6 +261,10 @@ function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function apiDisplayName(config: { providerName?: string }): string {
+  return config.providerName ? `第三方 API「${config.providerName}」` : '第三方 API';
+}
+
 async function fetchModelOptionsFromEndpoint(config: ApiConnectionConfig, endpoint: string): Promise<ModelOption[]> {
   const response = await fetch(endpoint, {
     method: 'GET',
@@ -245,7 +282,7 @@ async function fetchModelOptionsFromEndpoint(config: ApiConnectionConfig, endpoi
     const preview = text.replace(/\s+/g, ' ').slice(0, 160);
     throw new Error(
       [
-        '第三方 API 模型列表返回了非 JSON 响应，请确认 API Base URL 是否支持 /models。',
+        `${apiDisplayName(config)} 模型列表返回了非 JSON 响应，请确认 API Base URL 是否支持 /models。`,
         `当前请求地址：${endpoint}`,
         `响应开头：${preview}`
       ].join('\n')
@@ -258,7 +295,7 @@ async function fetchModelOptionsFromEndpoint(config: ApiConnectionConfig, endpoi
         ? data.error.message
         : text.slice(0, 600);
 
-    throw new ThirdPartyApiError(response.status, `第三方 API 模型列表请求失败 (${response.status})：${errorMessage}`);
+    throw new ThirdPartyApiError(response.status, `${apiDisplayName(config)} 模型列表请求失败 (${response.status})：${errorMessage}`);
   }
 
   return extractModelOptions(data);
@@ -281,7 +318,7 @@ export async function listAvailableModels(settings: TutorSettings): Promise<Mode
 
   throw new Error(
     [
-      '第三方 API 模型列表获取失败。',
+      `${apiDisplayName(config)} 模型列表获取失败。`,
       `已尝试地址：${candidates.join(', ')}`,
       `最后错误：${messageFromError(lastError)}`
     ].join('\n')
@@ -310,7 +347,7 @@ async function postJson(config: ApiConfig, body: unknown, signal?: AbortSignal):
     const preview = text.replace(/\s+/g, ' ').slice(0, 160);
     throw new Error(
       [
-        '第三方 API 返回了非 JSON 响应，通常是 API Base URL 或接口模式配置不正确。',
+        `${apiDisplayName(config)} 返回了非 JSON 响应，通常是 API Base URL 或接口模式配置不正确。`,
         `当前请求地址：${endpointFor(config)}`,
         `响应开头：${preview}`
       ].join('\n')
@@ -323,7 +360,7 @@ async function postJson(config: ApiConfig, body: unknown, signal?: AbortSignal):
         ? data.error.message
         : text.slice(0, 600);
 
-    throw new ThirdPartyApiError(response.status, `第三方 API 请求失败 (${response.status})：${errorMessage}`);
+    throw new ThirdPartyApiError(response.status, `${apiDisplayName(config)} 请求失败 (${response.status})：${errorMessage}`);
   }
 
   return data;
@@ -402,7 +439,7 @@ async function postJsonStream(
     }
 
     const errorMessage = extractApiErrorMessage(data) || text.slice(0, 600);
-    throw new ThirdPartyApiError(response.status, `第三方 API 请求失败 (${response.status})：${errorMessage}`);
+    throw new ThirdPartyApiError(response.status, `${apiDisplayName(config)} 请求失败 (${response.status})：${errorMessage}`);
   }
 
   const reader = response.body?.getReader();
@@ -445,7 +482,7 @@ async function postJsonStream(
     const streamError = extractApiErrorMessage(data);
 
     if (streamError) {
-      throw new ThirdPartyApiError(500, `第三方 API 流式请求失败：${streamError}`);
+      throw new ThirdPartyApiError(500, `${apiDisplayName(config)} 流式请求失败：${streamError}`);
     }
 
     responseId = extractStreamResponseId(data) || responseId;
@@ -537,7 +574,7 @@ async function postJsonStream(
       const preview = rawText.replace(/\s+/g, ' ').slice(0, 160);
       throw new Error(
         [
-          '第三方 API 流式接口返回了无法解析的内容，请确认该接口支持 stream: true。',
+          `${apiDisplayName(config)} 流式接口返回了无法解析的内容，请确认该接口支持 stream: true。`,
           `当前请求地址：${endpointFor(config)}`,
           `响应开头：${preview}`
         ].join('\n')

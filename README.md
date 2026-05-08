@@ -181,7 +181,10 @@ git push --tags
 如果是明显的新功能，可以把 `patch` 换成 `minor`，例如 `0.1.1 -> 0.2.0`：
 
 ```bash
-npm version minor
+npm version patch   # 小修小改、bug 修复：0.1.0 -> 0.1.1
+npm version minor   # 新功能：0.1.0 -> 0.2.0
+npm version major   # 大改动、不兼容：0.1.0 -> 1.0.0
+
 ```
 
 如果在国内网络下 GitHub 下载 Electron 或 electron-builder 二进制较慢，可以先在 PowerShell 设置镜像：
@@ -230,3 +233,23 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-bu
 ## 坐标与多显示器
 
 坐标采用 Electron 的 DIP 坐标在渲染进程和主进程间传递；主进程会根据当前显示器的 `scaleFactor` 换算为物理像素，再裁剪 `desktopCapturer` 返回的屏幕缩略图。多显示器场景下，会优先选择识别框中心所在显示器；如果中心点不在任何显示器内，则选择与识别框重叠面积最大的显示器。
+## 多第三方 API 配置
+
+可以在 `.env.local` 中配置多个第三方 API，并用 `AI_DEFAULT_PROVIDER` 指定默认服务商：
+
+```text
+AI_PROVIDERS=tcdmx,xieapi
+AI_DEFAULT_PROVIDER=tcdmx
+
+AI_PROVIDER_TCDMX_NAME=TCDMX
+AI_PROVIDER_TCDMX_BASE_URL=https://tcdmx.com
+AI_PROVIDER_TCDMX_API_MODE=responses
+AI_PROVIDER_TCDMX_API_KEY=你的 TCDMX Key
+
+AI_PROVIDER_XIEAPI_NAME=Xie API
+AI_PROVIDER_XIEAPI_BASE_URL=https://api.example.com/v1
+AI_PROVIDER_XIEAPI_API_MODE=chat-completions
+AI_PROVIDER_XIEAPI_API_KEY=你的 Xie API Key
+```
+
+应用启动后会在设置面板显示“API 服务商”下拉框，默认选中 `AI_DEFAULT_PROVIDER`。切换服务商后会重新请求该服务商的 `/models` 列表；请求失败时，结果窗口会提示当前使用的服务商，方便你切换到其他 API 后重试。API Key 只在主进程中使用，不会回填或明文展示到设置界面。

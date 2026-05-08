@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type {
   ApiModeSetting,
+  ApiProviderOption,
   ApiRuntimeDefaults,
   InputMode,
   ModelOption,
@@ -63,6 +64,7 @@ function defaultResultPanel(): RegionBounds {
 }
 
 const DEFAULT_SETTINGS: TutorSettings = {
+  providerId: '',
   model: '',
   language: 'zh-CN',
   reasoningOnly: false,
@@ -78,8 +80,9 @@ const DEFAULT_SETTINGS: TutorSettings = {
 function settingsWithApiDefaults(defaults: ApiRuntimeDefaults): TutorSettings {
   return {
     ...DEFAULT_SETTINGS,
+    providerId: defaults.providerId || DEFAULT_SETTINGS.providerId,
     apiBaseUrl: defaults.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl,
-    apiMode: defaults.apiMode || DEFAULT_SETTINGS.apiMode
+    apiMode: defaults.providerId ? 'env' : defaults.apiMode || DEFAULT_SETTINGS.apiMode
   };
 }
 
@@ -247,6 +250,7 @@ export function App(): JSX.Element {
   const [isModelListLoading, setIsModelListLoading] = useState(false);
   const [isModelCustom, setIsModelCustom] = useState(false);
   const [apiDefaults, setApiDefaults] = useState<ApiRuntimeDefaults | null>(null);
+  const [apiProviders, setApiProviders] = useState<ApiProviderOption[]>([]);
   const [appVersion, setAppVersion] = useState('');
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusEvent>({
     status: 'idle',
@@ -287,7 +291,11 @@ export function App(): JSX.Element {
       } else if (!isModelCustomRef.current) {
         const firstModelId = response.models[0]?.id;
 
-        setSettings((current) => (current.model.trim() || !firstModelId ? current : { ...current, model: firstModelId }));
+        setSettings((current) =>
+          !firstModelId || response.models.some((model) => model.id === current.model.trim())
+            ? current
+            : { ...current, model: firstModelId }
+        );
       }
     } catch (caught) {
       if (modelRequestIdRef.current !== requestId) {
@@ -315,6 +323,11 @@ export function App(): JSX.Element {
   const modelStatusText = isModelListLoading
     ? '正在获取模型列表...'
     : modelListError || (modelOptions.length > 0 ? `已加载 ${modelOptions.length} 个模型` : '尚未加载模型列表');
+  const selectedProvider = useMemo(
+    () => apiProviders.find((provider) => provider.id === settings.providerId),
+    [apiProviders, settings.providerId]
+  );
+  const selectedProviderHasKey = selectedProvider ? selectedProvider.hasApiKey : apiDefaults?.hasApiKey;
   const isCheckingUpdate = updateStatus.status === 'checking' || updateStatus.status === 'downloading';
   const updateMessage = [
     appVersion ? `当前版本：${appVersion}` : '',
@@ -323,6 +336,22 @@ export function App(): JSX.Element {
   ]
     .filter(Boolean)
     .join(' · ');
+  const addProviderSwitchHint = useCallback(
+    (message: string): string => {
+      const provider = apiProviders.find((item) => item.id === settings.providerId);
+
+      if (!provider || apiProviders.length < 2 || message.includes('切换到其他 API')) {
+        return message;
+      }
+
+      return [
+        message,
+        '',
+        `提示：当前使用的 API 服务商是「${provider.name}」。如果该服务商持续失败，可以在设置中切换到其他 API 后点击重试。`
+      ].join('\n');
+    },
+    [apiProviders, settings.providerId]
+  );
 
   const appendAnswerDelta = useCallback((text: string, reset = false): void => {
     if (reset) {
@@ -382,6 +411,7 @@ export function App(): JSX.Element {
         }
 
         setApiDefaults(defaults);
+        setApiProviders(defaults.providers);
         sourceSettings = settingsWithApiDefaults(defaults);
         setSettings(sourceSettings);
       } catch (caught) {
@@ -522,7 +552,7 @@ export function App(): JSX.Element {
         }
 
         const message = caught instanceof Error ? caught.message : String(caught);
-        const fallbackMessage = message || '识别失败，请稍后重试。';
+        const fallbackMessage = addProviderSwitchHint(message || '识别失败，请稍后重试。');
         const visibleMessage =
           latestProgressTextRef.current && !fallbackMessage.includes('## 处理过程')
             ? [latestProgressTextRef.current, '', '## 失败原因', '', fallbackMessage].join('\n')
@@ -539,7 +569,7 @@ export function App(): JSX.Element {
         setIsCancelling(false);
       }
     },
-    [absoluteRegion, activeSessionId, region, settings]
+    [absoluteRegion, activeSessionId, addProviderSwitchHint, region, settings]
   );
 
   const retry = useCallback(() => {
@@ -661,7 +691,7 @@ export function App(): JSX.Element {
       }
 
       const message = caught instanceof Error ? caught.message : String(caught);
-      const fallbackMessage = message || '追问失败，请稍后重试。';
+      const fallbackMessage = addProviderSwitchHint(message || '追问失败，请稍后重试。');
       const visibleMessage =
         latestProgressTextRef.current && !fallbackMessage.includes('## 处理过程')
           ? [latestProgressTextRef.current, '', '## 失败原因', '', fallbackMessage].join('\n')
@@ -680,7 +710,7 @@ export function App(): JSX.Element {
       setIsLoading(false);
       setIsCancelling(false);
     }
-  }, [activeSessionId, followUpText, isLoading, settings]);
+  }, [activeSessionId, addProviderSwitchHint, followUpText, isLoading, settings]);
 
   const cancelCurrentRequest = useCallback((): void => {
     const requestId = activeRequestIdRef.current;
@@ -766,6 +796,25 @@ export function App(): JSX.Element {
 
     return { icon: <BookOpen size={16} />, text: '待识别' };
   }, [conversationTurns.length, error, isCancelling, isLoading, result, stoppedMessage]);
+
+  const selectApiProvider = useCallback(
+    (providerId: string): void => {
+      const provider = apiProviders.find((item) => item.id === providerId);
+      const nextSettings: TutorSettings = {
+        ...settings,
+        providerId,
+        model: '',
+        apiBaseUrl: provider ? provider.baseUrl : settings.apiBaseUrl,
+        apiMode: provider ? 'env' : settings.apiMode
+      };
+
+      setIsModelCustom(false);
+      setModelOptions([]);
+      setSettings(nextSettings);
+      void loadModels(nextSettings);
+    },
+    [apiProviders, loadModels, settings]
+  );
 
   return (
     <main className="app-shell" onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
@@ -964,11 +1013,29 @@ export function App(): JSX.Element {
             </div>
           </div>
           <label>
+            API 服务商
+            <select value={settings.providerId} onChange={(event) => selectApiProvider(event.target.value)}>
+              {apiProviders.length === 0 && <option value="">手动配置</option>}
+              {apiProviders.length > 0 && <option value="">手动配置/不使用预设</option>}
+              {apiProviders.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.isDefault ? `${provider.name}（默认）` : provider.name}
+                </option>
+              ))}
+            </select>
+            <span className="model-status">
+              {selectedProvider
+                ? `当前使用 ${selectedProvider.name} · ${selectedProvider.baseUrl} · ${selectedProvider.apiMode}`
+                : '使用下方手动填写的 API Base URL、API Key 和接口模式。'}
+            </span>
+          </label>
+          <label>
             API Base URL
             <input
               value={settings.apiBaseUrl}
               onChange={(event) => setSettings((current) => ({ ...current, apiBaseUrl: event.target.value }))}
               placeholder="https://api.example.com/v1"
+              disabled={Boolean(settings.providerId)}
               spellCheck={false}
             />
           </label>
@@ -980,10 +1047,17 @@ export function App(): JSX.Element {
               onChange={(event) => setSettings((current) => ({ ...current, apiKey: event.target.value }))}
               placeholder="可留空使用 AI_API_KEY"
               autoComplete="off"
+              disabled={Boolean(settings.providerId)}
               spellCheck={false}
             />
             <span className="model-status">
-              {apiDefaults?.hasApiKey ? '已从配置文件加载 API Key，不会显示明文。' : '未检测到 AI_API_KEY。'}
+              {selectedProvider
+                ? selectedProviderHasKey
+                  ? '已从当前 API 服务商配置加载 API Key，不会显示明文。'
+                  : '当前 API 服务商未配置 API Key。'
+                : selectedProviderHasKey
+                  ? '已从配置文件加载 API Key，不会显示明文。'
+                  : '未检测到 AI_API_KEY。'}
             </span>
           </label>
           <label>
@@ -994,7 +1068,7 @@ export function App(): JSX.Element {
                 setSettings((current) => ({ ...current, apiMode: event.target.value as ApiModeSetting }))
               }
             >
-              <option value="env">使用环境变量</option>
+              <option value="env">使用当前 API 配置</option>
               <option value="chat-completions">Chat Completions 兼容</option>
               <option value="responses">Responses 兼容</option>
             </select>

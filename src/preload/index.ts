@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../shared/ipc';
 import type {
   AnswerDeltaEvent,
   ApiRuntimeDefaults,
+  ApiProviderOption,
   CancelRequest,
   EndQuestionSessionRequest,
   ExplainProgressEvent,
@@ -25,6 +26,7 @@ const api = {
   endQuestionSession: (request: EndQuestionSessionRequest): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.endQuestionSession, request),
   getApiDefaults: (): Promise<ApiRuntimeDefaults> => ipcRenderer.invoke(IPC_CHANNELS.getApiDefaults),
+  listApiProviders: (): Promise<ApiProviderOption[]> => ipcRenderer.invoke(IPC_CHANNELS.listApiProviders),
   getOverlayBounds: (): Promise<RegionBounds> => ipcRenderer.invoke(IPC_CHANNELS.getOverlayBounds),
   listModels: (settings: TutorSettings): Promise<ModelListResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.listModels, settings),

@@ -6,6 +6,7 @@ export const IPC_CHANNELS = {
   cancelRequest: 'tutor:cancel-request',
   endQuestionSession: 'tutor:end-question-session',
   getApiDefaults: 'tutor:get-api-defaults',
+  listApiProviders: 'tutor:list-api-providers',
   getOverlayBounds: 'tutor:get-overlay-bounds',
   listModels: 'tutor:list-models',
   checkForUpdates: 'tutor:check-for-updates',

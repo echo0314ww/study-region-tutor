@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, screen, type WebContents } from 'electron';
 import { is } from '@electron-toolkit/utils';
-import { autoUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater';
+import electronUpdater from 'electron-updater';
+import type { ProgressInfo, UpdateInfo } from 'electron-updater';
 import { join } from 'node:path';
 import { IPC_CHANNELS } from '../shared/ipc';
 import type {
@@ -24,6 +25,7 @@ import {
   explainImageWithMetadata,
   explainRecognizedTextWithMetadata,
   getRuntimeApiDefaults,
+  listApiProviders,
   listAvailableModels
 } from './openaiClient';
 import { recognizeTextFromDataUrl } from './ocr';
@@ -35,6 +37,8 @@ import {
   updateQuestionSessionResponseId
 } from './questionSessions';
 import { captureRegionAsDataUrl, setScreenshotDebugMode } from './screenshot';
+
+const { autoUpdater } = electronUpdater;
 
 let mainWindow: BrowserWindow | undefined;
 const activeRequestControllers = new Map<string, AbortController>();
@@ -274,6 +278,8 @@ function cancelActiveRequest(requestId: string): void {
 
 function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getApiDefaults, (): ApiRuntimeDefaults => getRuntimeApiDefaults());
+
+  ipcMain.handle(IPC_CHANNELS.listApiProviders, () => listApiProviders());
 
   ipcMain.handle(IPC_CHANNELS.getOverlayBounds, () => currentVirtualBounds());
 

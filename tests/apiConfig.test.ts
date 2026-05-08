@@ -10,6 +10,7 @@ import {
 import type { TutorSettings } from '../src/shared/types';
 
 const baseSettings: TutorSettings = {
+  providerId: '',
   model: 'vision-model',
   language: 'zh-CN',
   reasoningOnly: false,
@@ -47,6 +48,16 @@ afterEach(() => {
   delete process.env.AI_API_KEY;
   delete process.env.AI_BASE_URL;
   delete process.env.AI_API_MODE;
+  delete process.env.AI_PROVIDERS;
+  delete process.env.AI_DEFAULT_PROVIDER;
+  delete process.env.AI_PROVIDER_TCDMX_NAME;
+  delete process.env.AI_PROVIDER_TCDMX_BASE_URL;
+  delete process.env.AI_PROVIDER_TCDMX_API_KEY;
+  delete process.env.AI_PROVIDER_TCDMX_API_MODE;
+  delete process.env.AI_PROVIDER_XIEAPI_NAME;
+  delete process.env.AI_PROVIDER_XIEAPI_BASE_URL;
+  delete process.env.AI_PROVIDER_XIEAPI_API_KEY;
+  delete process.env.AI_PROVIDER_XIEAPI_API_MODE;
 });
 
 describe('resolveApiConfig', () => {
@@ -80,6 +91,60 @@ describe('resolveApiConfig', () => {
       apiMode: 'responses',
       reasoningEffort: 'xhigh'
     });
+  });
+
+  it('resolves the selected configured API provider without exposing other providers', () => {
+    process.env.AI_PROVIDERS = 'tcdmx,xieapi';
+    process.env.AI_DEFAULT_PROVIDER = 'xieapi';
+    process.env.AI_PROVIDER_TCDMX_NAME = 'TCDMX';
+    process.env.AI_PROVIDER_TCDMX_BASE_URL = 'https://tcdmx.com';
+    process.env.AI_PROVIDER_TCDMX_API_KEY = 'tcdmx-key';
+    process.env.AI_PROVIDER_TCDMX_API_MODE = 'responses';
+    process.env.AI_PROVIDER_XIEAPI_NAME = 'Xie API';
+    process.env.AI_PROVIDER_XIEAPI_BASE_URL = 'https://xie.example/v1';
+    process.env.AI_PROVIDER_XIEAPI_API_KEY = 'xie-key';
+    process.env.AI_PROVIDER_XIEAPI_API_MODE = 'chat-completions';
+
+    expect(
+      resolveApiConfig({
+        ...baseSettings,
+        providerId: 'tcdmx',
+        apiBaseUrl: '',
+        apiKey: '',
+        apiMode: 'env'
+      })
+    ).toEqual({
+      apiKey: 'tcdmx-key',
+      baseUrl: 'https://tcdmx.com',
+      model: 'vision-model',
+      apiMode: 'responses',
+      reasoningEffort: undefined,
+      providerId: 'tcdmx',
+      providerName: 'TCDMX'
+    });
+
+    const defaults = getRuntimeApiDefaults();
+
+    expect(defaults.providerId).toBe('xieapi');
+    expect(defaults.providers).toEqual([
+      {
+        id: 'tcdmx',
+        name: 'TCDMX',
+        baseUrl: 'https://tcdmx.com',
+        apiMode: 'responses',
+        hasApiKey: true,
+        isDefault: false
+      },
+      {
+        id: 'xieapi',
+        name: 'Xie API',
+        baseUrl: 'https://xie.example/v1',
+        apiMode: 'chat-completions',
+        hasApiKey: true,
+        isDefault: true
+      }
+    ]);
+    expect(JSON.stringify(defaults.providers)).not.toContain('xie-key');
   });
 
   it('requires the model to be selected in the settings UI', () => {
@@ -300,7 +365,18 @@ describe('resolveApiConfig', () => {
     expect(defaults).toEqual({
       apiBaseUrl: 'https://provider.example/api/v1',
       apiMode: 'responses',
-      hasApiKey: true
+      hasApiKey: true,
+      providerId: 'default',
+      providers: [
+        {
+          id: 'default',
+          name: 'Default API',
+          baseUrl: 'https://provider.example/api/v1',
+          apiMode: 'responses',
+          hasApiKey: true,
+          isDefault: true
+        }
+      ]
     });
     expect(defaults).not.toHaveProperty('apiKey');
   });
@@ -351,6 +427,46 @@ describe('resolveApiConfig', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer test-key',
           Accept: 'application/json'
+        })
+      })
+    );
+  });
+
+  it('requests model lists from the selected configured provider', async () => {
+    process.env.AI_PROVIDERS = 'tcdmx,xieapi';
+    process.env.AI_PROVIDER_TCDMX_BASE_URL = 'https://tcdmx.com';
+    process.env.AI_PROVIDER_TCDMX_API_KEY = 'tcdmx-key';
+    process.env.AI_PROVIDER_TCDMX_API_MODE = 'responses';
+    process.env.AI_PROVIDER_XIEAPI_BASE_URL = 'https://xie.example/v1';
+    process.env.AI_PROVIDER_XIEAPI_API_KEY = 'xie-key';
+    process.env.AI_PROVIDER_XIEAPI_API_MODE = 'chat-completions';
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({ data: [{ id: 'xie-model' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      listAvailableModels({
+        ...baseSettings,
+        providerId: 'xieapi',
+        apiBaseUrl: '',
+        apiKey: '',
+        model: ''
+      })
+    ).resolves.toEqual({
+      models: [{ id: 'xie-model', ownedBy: undefined }]
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://xie.example/v1/models',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer xie-key'
         })
       })
     );
