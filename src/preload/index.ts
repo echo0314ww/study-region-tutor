@@ -35,6 +35,8 @@ const api = {
   installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.getAppVersion),
   setDebugMode: (enabled: boolean): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setDebugMode, enabled),
+  setMousePassthrough: (ignored: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.setMousePassthrough, ignored),
   onUpdateStatus: (callback: (status: UpdateStatusEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatusEvent): void => callback(status);
     ipcRenderer.on(IPC_CHANNELS.updateStatus, listener);

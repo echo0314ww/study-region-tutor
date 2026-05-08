@@ -50,6 +50,7 @@ const { autoUpdater } = electronUpdater;
 
 let mainWindow: BrowserWindow | undefined;
 const activeRequestControllers = new Map<string, AbortController>();
+let isMousePassthroughEnabled = false;
 let latestUpdateStatus: UpdateStatusEvent = {
   status: 'idle',
   message: '尚未检查更新。'
@@ -90,6 +91,12 @@ function createWindow(): void {
       nodeIntegration: false
     }
   });
+  isMousePassthroughEnabled = false;
+
+  mainWindow.on('closed', () => {
+    mainWindow = undefined;
+    isMousePassthroughEnabled = false;
+  });
 
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -104,6 +111,15 @@ function createWindow(): void {
 function emitUpdateStatus(status: UpdateStatusEvent): void {
   latestUpdateStatus = status;
   mainWindow?.webContents.send(IPC_CHANNELS.updateStatus, status);
+}
+
+function setMousePassthrough(ignored: boolean): void {
+  if (!mainWindow || mainWindow.isDestroyed() || isMousePassthroughEnabled === ignored) {
+    return;
+  }
+
+  isMousePassthroughEnabled = ignored;
+  mainWindow.setIgnoreMouseEvents(ignored, ignored ? { forward: true } : undefined);
 }
 
 function updateVersion(info: UpdateInfo): string | undefined {
@@ -323,6 +339,10 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC_CHANNELS.setDebugMode, (_event, enabled: boolean) => {
     setScreenshotDebugMode(Boolean(enabled));
+  });
+
+  ipcMain.handle(IPC_CHANNELS.setMousePassthrough, (_event, ignored: boolean): void => {
+    setMousePassthrough(Boolean(ignored));
   });
 
   ipcMain.handle(IPC_CHANNELS.checkForUpdates, async (): Promise<void> => {

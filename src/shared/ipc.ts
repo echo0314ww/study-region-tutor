@@ -14,5 +14,6 @@ export const IPC_CHANNELS = {
   updateStatus: 'tutor:update-status',
   getAppVersion: 'tutor:get-app-version',
   setDebugMode: 'tutor:set-debug-mode',
+  setMousePassthrough: 'tutor:set-mouse-passthrough',
   setCaptureUiVisible: 'tutor:set-capture-ui-visible'
 } as const;

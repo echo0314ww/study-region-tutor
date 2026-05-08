@@ -78,7 +78,7 @@ const DEFAULT_SETTINGS: TutorSettings = {
   inputMode: 'image',
   ocrLanguage: 'chi_sim',
   ocrMathMode: true,
-  reasoningEffort: 'xhigh'
+  reasoningEffort: 'high'
 };
 
 function settingsWithApiDefaults(defaults: ApiRuntimeDefaults): TutorSettings {
@@ -113,6 +113,10 @@ function isCanceledError(error: unknown): boolean {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function isInteractiveElement(element: Element | null): boolean {
+  return Boolean(element?.closest('[data-interactive="true"]'));
 }
 
 function clampRegion(region: RegionBounds): RegionBounds {
@@ -272,10 +276,79 @@ export function App(): JSX.Element {
   const streamingAnswerTextRef = useRef('');
   const modelRequestIdRef = useRef(0);
   const isModelCustomRef = useRef(false);
+  const lastPointerPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const isMousePassthroughRef = useRef(false);
 
   useEffect(() => {
     isModelCustomRef.current = isModelCustom;
   }, [isModelCustom]);
+
+  const floatingPassthroughMode = isCaptureUiVisible && !isSelectionVisible;
+
+  const setMousePassthrough = useCallback((ignored: boolean): void => {
+    if (isMousePassthroughRef.current === ignored) {
+      return;
+    }
+
+    isMousePassthroughRef.current = ignored;
+    void window.studyTutor.setMousePassthrough(ignored).catch(() => undefined);
+  }, []);
+
+  const updateMousePassthrough = useCallback(
+    (clientX: number, clientY: number, target?: EventTarget | null): void => {
+      lastPointerPositionRef.current = { x: clientX, y: clientY };
+
+      if (!floatingPassthroughMode || dragRef.current || resultPanelDragRef.current) {
+        setMousePassthrough(false);
+        return;
+      }
+
+      const element = target instanceof Element ? target : document.elementFromPoint(clientX, clientY);
+      setMousePassthrough(!isInteractiveElement(element));
+    },
+    [floatingPassthroughMode, setMousePassthrough]
+  );
+
+  useEffect(() => {
+    if (!floatingPassthroughMode) {
+      setMousePassthrough(false);
+      return;
+    }
+
+    const lastPosition = lastPointerPositionRef.current;
+
+    if (!lastPosition) {
+      setMousePassthrough(true);
+      return;
+    }
+
+    updateMousePassthrough(lastPosition.x, lastPosition.y);
+  }, [
+    floatingPassthroughMode,
+    isResultOpen,
+    isSettingsOpen,
+    resultPanel.height,
+    resultPanel.width,
+    resultPanel.x,
+    resultPanel.y,
+    setMousePassthrough,
+    updateMousePassthrough
+  ]);
+
+  useEffect(() => {
+    const onMouseMove = (event: MouseEvent): void => {
+      updateMousePassthrough(event.clientX, event.clientY, event.target);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    return () => window.removeEventListener('mousemove', onMouseMove);
+  }, [updateMousePassthrough]);
+
+  useEffect(() => {
+    return () => {
+      void window.studyTutor.setMousePassthrough(false).catch(() => undefined);
+    };
+  }, []);
 
   const loadModels = useCallback(async (sourceSettings: TutorSettings): Promise<void> => {
     const requestId = modelRequestIdRef.current + 1;
@@ -780,9 +853,18 @@ export function App(): JSX.Element {
     void window.studyTutor.cancelRequest({ requestId });
   }, [isLoading]);
 
+  const onPointerDownCapture = (event: PointerEvent): void => {
+    lastPointerPositionRef.current = { x: event.clientX, y: event.clientY };
+
+    if (event.target instanceof Element && isInteractiveElement(event.target)) {
+      setMousePassthrough(false);
+    }
+  };
+
   const onResultPanelPointerDown = (event: PointerEvent, mode: DragMode): void => {
     event.preventDefault();
     event.stopPropagation();
+    setMousePassthrough(false);
     event.currentTarget.setPointerCapture(event.pointerId);
     resultPanelDragRef.current = {
       mode,
@@ -795,6 +877,7 @@ export function App(): JSX.Element {
 
   const onPointerDown = (event: PointerEvent, mode: DragMode): void => {
     event.preventDefault();
+    setMousePassthrough(false);
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
       mode,
@@ -806,6 +889,8 @@ export function App(): JSX.Element {
   };
 
   const onPointerMove = (event: PointerEvent): void => {
+    updateMousePassthrough(event.clientX, event.clientY, event.target);
+
     const resultPanelDrag = resultPanelDragRef.current;
 
     if (resultPanelDrag?.pointerId === event.pointerId) {
@@ -830,6 +915,8 @@ export function App(): JSX.Element {
     if (dragRef.current?.pointerId === event.pointerId) {
       dragRef.current = null;
     }
+
+    updateMousePassthrough(event.clientX, event.clientY, event.target);
   };
 
   const status = useMemo(() => {
@@ -911,7 +998,13 @@ export function App(): JSX.Element {
   );
 
   return (
-    <main className="app-shell" onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+    <main
+      className="app-shell"
+      onPointerDownCapture={onPointerDownCapture}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
       {isCaptureUiVisible && isSelectionVisible && (
         <>
           <div className="shade top" style={{ height: region.y }} />
@@ -923,6 +1016,7 @@ export function App(): JSX.Element {
           <div className="shade bottom" style={{ top: region.y + region.height }} />
 
           <section
+            data-interactive="true"
             className="selection"
             style={{ transform: `translate(${region.x}px, ${region.y}px)`, width: region.width, height: region.height }}
             onPointerDown={(event) => onPointerDown(event, 'move')}
@@ -948,7 +1042,7 @@ export function App(): JSX.Element {
 
       {isCaptureUiVisible && (
         <>
-          <nav className="toolbar" aria-label="controls">
+          <nav className="toolbar" aria-label="controls" data-interactive="true">
             {(isSelectionVisible || isLoading) && (
               <button className="primary-button" type="button" onClick={() => void runExplain()} disabled={isLoading}>
                 {isLoading ? <Loader2 size={18} className="spin" /> : <BookOpen size={18} />}
@@ -973,6 +1067,7 @@ export function App(): JSX.Element {
 
       {isCaptureUiVisible && isResultOpen && (
         <aside
+          data-interactive="true"
           className="result-panel"
           aria-label="result"
           style={{
@@ -1076,7 +1171,7 @@ export function App(): JSX.Element {
       )}
 
       {isCaptureUiVisible && isSettingsOpen && (
-        <aside className="settings-panel" aria-label="settings">
+        <aside className="settings-panel" aria-label="settings" data-interactive="true">
           <div className="panel-header">
             <strong>设置</strong>
             <button className="icon-button ghost" type="button" onClick={() => setIsSettingsOpen(false)} title="关闭">
