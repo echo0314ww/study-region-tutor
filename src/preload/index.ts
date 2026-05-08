@@ -26,7 +26,8 @@ const api = {
   endQuestionSession: (request: EndQuestionSessionRequest): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.endQuestionSession, request),
   getApiDefaults: (): Promise<ApiRuntimeDefaults> => ipcRenderer.invoke(IPC_CHANNELS.getApiDefaults),
-  listApiProviders: (): Promise<ApiProviderOption[]> => ipcRenderer.invoke(IPC_CHANNELS.listApiProviders),
+  listApiProviders: (settings?: TutorSettings): Promise<ApiProviderOption[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.listApiProviders, settings),
   getOverlayBounds: (): Promise<RegionBounds> => ipcRenderer.invoke(IPC_CHANNELS.getOverlayBounds),
   listModels: (settings: TutorSettings): Promise<ModelListResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.listModels, settings),

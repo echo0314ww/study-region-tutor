@@ -10,6 +10,7 @@ import {
 import type { TutorSettings } from '../src/shared/types';
 
 const baseSettings: TutorSettings = {
+  apiConnectionMode: 'direct',
   providerId: '',
   model: 'vision-model',
   language: 'zh-CN',
@@ -17,6 +18,8 @@ const baseSettings: TutorSettings = {
   apiMode: 'chat-completions',
   apiBaseUrl: 'https://third-party.example/v1',
   apiKey: 'test-key',
+  proxyUrl: '',
+  proxyToken: '',
   inputMode: 'ocr-text',
   ocrLanguage: 'chi_sim',
   ocrMathMode: true,
@@ -58,6 +61,9 @@ afterEach(() => {
   delete process.env.AI_PROVIDER_XIEAPI_BASE_URL;
   delete process.env.AI_PROVIDER_XIEAPI_API_KEY;
   delete process.env.AI_PROVIDER_XIEAPI_API_MODE;
+  delete process.env.TUTOR_API_CONNECTION_MODE;
+  delete process.env.TUTOR_PROXY_URL;
+  delete process.env.TUTOR_PROXY_TOKEN;
 });
 
 describe('resolveApiConfig', () => {
@@ -363,6 +369,7 @@ describe('resolveApiConfig', () => {
     const defaults = getRuntimeApiDefaults();
 
     expect(defaults).toEqual({
+      apiConnectionMode: 'direct',
       apiBaseUrl: 'https://provider.example/api/v1',
       apiMode: 'responses',
       hasApiKey: true,
@@ -376,9 +383,26 @@ describe('resolveApiConfig', () => {
           hasApiKey: true,
           isDefault: true
         }
-      ]
+      ],
+      proxyUrl: '',
+      hasProxyToken: false
     });
     expect(defaults).not.toHaveProperty('apiKey');
+  });
+
+  it('exposes proxy defaults without leaking the proxy token', () => {
+    process.env.AI_API_KEY = 'env-key';
+    process.env.AI_BASE_URL = 'https://provider.example/api/v1';
+    process.env.TUTOR_API_CONNECTION_MODE = 'proxy';
+    process.env.TUTOR_PROXY_URL = 'http://127.0.0.1:8787';
+    process.env.TUTOR_PROXY_TOKEN = 'secret-proxy-token';
+
+    const defaults = getRuntimeApiDefaults();
+
+    expect(defaults.apiConnectionMode).toBe('proxy');
+    expect(defaults.proxyUrl).toBe('http://127.0.0.1:8787');
+    expect(defaults.hasProxyToken).toBe(true);
+    expect(defaults).not.toHaveProperty('proxyToken');
   });
 
   it('rejects official OpenAI API hosts for this third-party mode', () => {

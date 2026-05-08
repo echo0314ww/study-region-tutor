@@ -20,6 +20,7 @@ import type {
 import { getVirtualBounds } from './geometry';
 import { loadLocalEnv } from './env';
 import { abortableDelay, isOperationCanceled, throwIfAborted } from './cancel';
+import type { ModelAnswer } from './openaiClient';
 import {
   askFollowUp,
   explainImageWithMetadata,
@@ -37,6 +38,13 @@ import {
   updateQuestionSessionResponseId
 } from './questionSessions';
 import { captureRegionAsDataUrl, setScreenshotDebugMode } from './screenshot';
+import {
+  proxyAskFollowUp,
+  proxyExplainImageWithMetadata,
+  proxyExplainRecognizedTextWithMetadata,
+  proxyListApiProviders,
+  proxyListAvailableModels
+} from './proxyClient';
 
 const { autoUpdater } = electronUpdater;
 
@@ -276,10 +284,38 @@ function cancelActiveRequest(requestId: string): void {
   activeRequestControllers.get(requestId)?.abort();
 }
 
+function isProxyMode(settings: TutorSettings): boolean {
+  return settings.apiConnectionMode === 'proxy';
+}
+
+function explainImageRequest(
+  dataUrl: string,
+  settings: TutorSettings,
+  signal: AbortSignal,
+  onDelta: (text: string) => void
+): Promise<ModelAnswer> {
+  return isProxyMode(settings)
+    ? proxyExplainImageWithMetadata(dataUrl, settings, signal, onDelta)
+    : explainImageWithMetadata(dataUrl, settings, signal, onDelta);
+}
+
+function explainTextRequest(
+  recognizedText: string,
+  settings: TutorSettings,
+  signal: AbortSignal,
+  onDelta: (text: string) => void
+): Promise<ModelAnswer> {
+  return isProxyMode(settings)
+    ? proxyExplainRecognizedTextWithMetadata(recognizedText, settings, signal, onDelta)
+    : explainRecognizedTextWithMetadata(recognizedText, settings, signal, onDelta);
+}
+
 function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getApiDefaults, (): ApiRuntimeDefaults => getRuntimeApiDefaults());
 
-  ipcMain.handle(IPC_CHANNELS.listApiProviders, () => listApiProviders());
+  ipcMain.handle(IPC_CHANNELS.listApiProviders, (_event, settings?: TutorSettings) =>
+    settings && isProxyMode(settings) ? proxyListApiProviders(settings) : listApiProviders()
+  );
 
   ipcMain.handle(IPC_CHANNELS.getOverlayBounds, () => currentVirtualBounds());
 
@@ -300,7 +336,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.listModels, (_event, settings: TutorSettings): Promise<ModelListResult> => {
-    return listAvailableModels(settings);
+    return isProxyMode(settings) ? proxyListAvailableModels(settings) : listAvailableModels(settings);
   });
 
   ipcMain.handle(IPC_CHANNELS.cancelRequest, (_event, request: CancelRequest): void => {
@@ -328,7 +364,9 @@ function registerIpc(): void {
         latestProcessLog = emitProgress('当前将使用本地历史上下文模式继续追问。');
       }
 
-      const answer = await askFollowUp(request.question, context, request.settings, signal, emitAnswerDelta);
+      const answer = isProxyMode(request.settings)
+        ? await proxyAskFollowUp(request.question, context, request.settings, signal, emitAnswerDelta)
+        : await askFollowUp(request.question, context, request.settings, signal, emitAnswerDelta);
       throwIfAborted(signal);
 
       if (answer.usedPreviousResponse) {
@@ -387,7 +425,7 @@ function registerIpc(): void {
         latestProcessLog = emitProgress('已将该区域截图转换为 PNG base64 data URL，正在发送给第三方图片接口。');
 
         try {
-          const answer = await explainImageWithMetadata(dataUrl, request.settings, signal, emitAnswerDelta);
+          const answer = await explainImageRequest(dataUrl, request.settings, signal, emitAnswerDelta);
           throwIfAborted(signal);
           latestProcessLog = emitProgress('图片接口请求成功，未启用 OCR 兜底。');
           latestProcessLog = emitProgress('已创建本题会话，可以继续围绕这道题追问。');
@@ -418,7 +456,7 @@ function registerIpc(): void {
           latestProcessLog = emitProgress('正在将 OCR 文本发送给第三方文本接口进行题目讲解。');
 
           try {
-            const answer = await explainRecognizedTextWithMetadata(
+            const answer = await explainTextRequest(
               [
                 '以下是直接图片接口失败后，本地 OCR 得到的题目文字。',
                 '请忽略“图片接口失败”这个技术过程，只根据 OCR 文本中的题目进行学习性讲解。',
@@ -477,7 +515,7 @@ function registerIpc(): void {
         throwIfAborted(signal);
         latestProcessLog = emitProgress(`本地 OCR 已完成，OCR 结果长度：${recognizedText.length} 个字符。`);
         latestProcessLog = emitProgress('正在将 OCR 文本发送给第三方文本接口进行题目讲解。');
-        const answer = await explainRecognizedTextWithMetadata(recognizedText, request.settings, signal, emitAnswerDelta);
+        const answer = await explainTextRequest(recognizedText, request.settings, signal, emitAnswerDelta);
         throwIfAborted(signal);
         latestProcessLog = emitProgress('OCR 文本接口请求成功，已生成讲解结果。');
         latestProcessLog = emitProgress('已创建本题会话，可以继续围绕这道题追问。');

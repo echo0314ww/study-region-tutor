@@ -2,6 +2,7 @@ import { AlertCircle, BookOpen, Check, Loader2, PanelRight, RefreshCw, Settings,
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type {
+  ApiConnectionMode,
   ApiModeSetting,
   ApiProviderOption,
   ApiRuntimeDefaults,
@@ -64,6 +65,7 @@ function defaultResultPanel(): RegionBounds {
 }
 
 const DEFAULT_SETTINGS: TutorSettings = {
+  apiConnectionMode: 'direct',
   providerId: '',
   model: '',
   language: 'zh-CN',
@@ -71,6 +73,8 @@ const DEFAULT_SETTINGS: TutorSettings = {
   apiMode: 'env',
   apiBaseUrl: '',
   apiKey: '',
+  proxyUrl: '',
+  proxyToken: '',
   inputMode: 'image',
   ocrLanguage: 'chi_sim',
   ocrMathMode: true,
@@ -80,9 +84,11 @@ const DEFAULT_SETTINGS: TutorSettings = {
 function settingsWithApiDefaults(defaults: ApiRuntimeDefaults): TutorSettings {
   return {
     ...DEFAULT_SETTINGS,
+    apiConnectionMode: defaults.apiConnectionMode || DEFAULT_SETTINGS.apiConnectionMode,
     providerId: defaults.providerId || DEFAULT_SETTINGS.providerId,
     apiBaseUrl: defaults.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl,
-    apiMode: defaults.providerId ? 'env' : defaults.apiMode || DEFAULT_SETTINGS.apiMode
+    apiMode: defaults.providerId ? 'env' : defaults.apiMode || DEFAULT_SETTINGS.apiMode,
+    proxyUrl: defaults.proxyUrl || DEFAULT_SETTINGS.proxyUrl
   };
 }
 
@@ -312,6 +318,47 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  const refreshApiProviders = useCallback(
+    async (sourceSettings: TutorSettings): Promise<void> => {
+      setModelListError('');
+
+      try {
+        const providers = await window.studyTutor.listApiProviders(sourceSettings);
+        const currentProvider = providers.find((provider) => provider.id === sourceSettings.providerId);
+        const defaultProvider = providers.find((provider) => provider.isDefault) || providers[0];
+        const nextProvider = currentProvider || defaultProvider;
+        const nextSettings: TutorSettings = {
+          ...sourceSettings,
+          providerId: nextProvider?.id || '',
+          model: '',
+          apiBaseUrl:
+            sourceSettings.apiConnectionMode === 'direct' && nextProvider
+              ? nextProvider.baseUrl
+              : sourceSettings.apiBaseUrl,
+          apiMode:
+            sourceSettings.apiConnectionMode === 'direct' && nextProvider
+              ? 'env'
+              : sourceSettings.apiMode
+        };
+
+        setApiProviders(providers);
+        setIsModelCustom(false);
+        setModelOptions([]);
+        setSettings(nextSettings);
+
+        if (nextSettings.providerId || nextSettings.apiConnectionMode === 'direct') {
+          void loadModels(nextSettings);
+        }
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        setApiProviders([]);
+        setModelOptions([]);
+        setModelListError(message || 'API 服务商列表获取失败，请检查代理地址、Token 或本地 API 配置。');
+      }
+    },
+    [loadModels]
+  );
+
   const modelIds = useMemo(() => new Set(modelOptions.map((model) => model.id)), [modelOptions]);
   const modelSelectValue = isModelCustom
     ? CUSTOM_MODEL_VALUE
@@ -327,7 +374,9 @@ export function App(): JSX.Element {
     () => apiProviders.find((provider) => provider.id === settings.providerId),
     [apiProviders, settings.providerId]
   );
+  const isProxyConnection = settings.apiConnectionMode === 'proxy';
   const selectedProviderHasKey = selectedProvider ? selectedProvider.hasApiKey : apiDefaults?.hasApiKey;
+  const hasProxyToken = Boolean(settings.proxyToken.trim()) || Boolean(apiDefaults?.hasProxyToken);
   const isCheckingUpdate = updateStatus.status === 'checking' || updateStatus.status === 'downloading';
   const updateMessage = [
     appVersion ? `当前版本：${appVersion}` : '',
@@ -411,9 +460,15 @@ export function App(): JSX.Element {
         }
 
         setApiDefaults(defaults);
-        setApiProviders(defaults.providers);
         sourceSettings = settingsWithApiDefaults(defaults);
         setSettings(sourceSettings);
+
+        if (sourceSettings.apiConnectionMode === 'proxy') {
+          await refreshApiProviders(sourceSettings);
+          return;
+        }
+
+        setApiProviders(defaults.providers);
       } catch (caught) {
         if (!isMounted) {
           return;
@@ -469,7 +524,7 @@ export function App(): JSX.Element {
       unsubscribeProgress();
       unsubscribeAnswerDelta();
     };
-  }, [appendAnswerDelta, loadModels]);
+  }, [appendAnswerDelta, loadModels, refreshApiProviders]);
 
   const absoluteRegion = useCallback(
     (localRegion: RegionBounds): RegionBounds => ({
@@ -797,6 +852,42 @@ export function App(): JSX.Element {
     return { icon: <BookOpen size={16} />, text: '待识别' };
   }, [conversationTurns.length, error, isCancelling, isLoading, result, stoppedMessage]);
 
+  const selectApiConnectionMode = useCallback(
+    (apiConnectionMode: ApiConnectionMode): void => {
+      const nextSettings: TutorSettings = {
+        ...settings,
+        apiConnectionMode,
+        providerId: '',
+        model: '',
+        proxyUrl: apiConnectionMode === 'proxy' ? settings.proxyUrl || apiDefaults?.proxyUrl || '' : settings.proxyUrl
+      };
+
+      setIsModelCustom(false);
+      setModelOptions([]);
+      setModelListError('');
+
+      if (apiConnectionMode === 'proxy') {
+        setSettings(nextSettings);
+        void refreshApiProviders(nextSettings);
+        return;
+      }
+
+      const providers = apiDefaults?.providers || [];
+      const defaultProvider = providers.find((provider) => provider.isDefault) || providers[0];
+      const directSettings: TutorSettings = {
+        ...nextSettings,
+        providerId: defaultProvider?.id || '',
+        apiBaseUrl: defaultProvider?.baseUrl || apiDefaults?.apiBaseUrl || settings.apiBaseUrl,
+        apiMode: defaultProvider ? 'env' : apiDefaults?.apiMode || settings.apiMode
+      };
+
+      setApiProviders(providers);
+      setSettings(directSettings);
+      void loadModels(directSettings);
+    },
+    [apiDefaults, loadModels, refreshApiProviders, settings]
+  );
+
   const selectApiProvider = useCallback(
     (providerId: string): void => {
       const provider = apiProviders.find((item) => item.id === providerId);
@@ -811,7 +902,10 @@ export function App(): JSX.Element {
       setIsModelCustom(false);
       setModelOptions([]);
       setSettings(nextSettings);
-      void loadModels(nextSettings);
+
+      if (nextSettings.providerId || nextSettings.apiConnectionMode === 'direct') {
+        void loadModels(nextSettings);
+      }
     },
     [apiProviders, loadModels, settings]
   );
@@ -1013,10 +1107,61 @@ export function App(): JSX.Element {
             </div>
           </div>
           <label>
+            API 连接模式
+            <select
+              value={settings.apiConnectionMode}
+              onChange={(event) => selectApiConnectionMode(event.target.value as ApiConnectionMode)}
+            >
+              <option value="direct">本地直连</option>
+              <option value="proxy">代理服务</option>
+            </select>
+            <span className="model-status">
+              {isProxyConnection
+                ? '通过本机/局域网代理服务转发请求，用户端不需要保存第三方 API Key。'
+                : '应用直接读取本机配置或设置面板里的第三方 API 配置。'}
+            </span>
+          </label>
+          {isProxyConnection && (
+            <>
+              <label>
+                代理服务地址
+                <input
+                  value={settings.proxyUrl}
+                  onChange={(event) => setSettings((current) => ({ ...current, proxyUrl: event.target.value }))}
+                  placeholder="http://127.0.0.1:8787"
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                代理访问 Token
+                <input
+                  type="password"
+                  value={settings.proxyToken}
+                  onChange={(event) => setSettings((current) => ({ ...current, proxyToken: event.target.value }))}
+                  placeholder="可留空使用 TUTOR_PROXY_TOKEN"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <span className={`model-status ${hasProxyToken ? '' : 'danger'}`}>
+                  {hasProxyToken ? '已检测到代理访问 Token。' : '未检测到代理访问 Token，请在这里填写或配置 TUTOR_PROXY_TOKEN。'}
+                </span>
+              </label>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void refreshApiProviders(settings)}
+                disabled={isModelListLoading}
+              >
+                {isModelListLoading ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+                刷新代理服务商
+              </button>
+            </>
+          )}
+          <label>
             API 服务商
             <select value={settings.providerId} onChange={(event) => selectApiProvider(event.target.value)}>
-              {apiProviders.length === 0 && <option value="">手动配置</option>}
-              {apiProviders.length > 0 && <option value="">手动配置/不使用预设</option>}
+              {apiProviders.length === 0 && <option value="">{isProxyConnection ? '请先刷新代理服务商' : '手动配置'}</option>}
+              {!isProxyConnection && apiProviders.length > 0 && <option value="">手动配置/不使用预设</option>}
               {apiProviders.map((provider) => (
                 <option key={provider.id} value={provider.id}>
                   {provider.isDefault ? `${provider.name}（默认）` : provider.name}
@@ -1026,53 +1171,59 @@ export function App(): JSX.Element {
             <span className="model-status">
               {selectedProvider
                 ? `当前使用 ${selectedProvider.name} · ${selectedProvider.baseUrl} · ${selectedProvider.apiMode}`
-                : '使用下方手动填写的 API Base URL、API Key 和接口模式。'}
+                : isProxyConnection
+                  ? '请先连接代理服务并刷新 API 服务商。'
+                  : '使用下方手动填写的 API Base URL、API Key 和接口模式。'}
             </span>
           </label>
-          <label>
-            API Base URL
-            <input
-              value={settings.apiBaseUrl}
-              onChange={(event) => setSettings((current) => ({ ...current, apiBaseUrl: event.target.value }))}
-              placeholder="https://api.example.com/v1"
-              disabled={Boolean(settings.providerId)}
-              spellCheck={false}
-            />
-          </label>
-          <label>
-            API Key
-            <input
-              type="password"
-              value={settings.apiKey}
-              onChange={(event) => setSettings((current) => ({ ...current, apiKey: event.target.value }))}
-              placeholder="可留空使用 AI_API_KEY"
-              autoComplete="off"
-              disabled={Boolean(settings.providerId)}
-              spellCheck={false}
-            />
-            <span className="model-status">
-              {selectedProvider
-                ? selectedProviderHasKey
-                  ? '已从当前 API 服务商配置加载 API Key，不会显示明文。'
-                  : '当前 API 服务商未配置 API Key。'
-                : selectedProviderHasKey
-                  ? '已从配置文件加载 API Key，不会显示明文。'
-                  : '未检测到 AI_API_KEY。'}
-            </span>
-          </label>
-          <label>
-            接口模式
-            <select
-              value={settings.apiMode}
-              onChange={(event) =>
-                setSettings((current) => ({ ...current, apiMode: event.target.value as ApiModeSetting }))
-              }
-            >
-              <option value="env">使用当前 API 配置</option>
-              <option value="chat-completions">Chat Completions 兼容</option>
-              <option value="responses">Responses 兼容</option>
-            </select>
-          </label>
+          {!isProxyConnection && (
+            <>
+              <label>
+                API Base URL
+                <input
+                  value={settings.apiBaseUrl}
+                  onChange={(event) => setSettings((current) => ({ ...current, apiBaseUrl: event.target.value }))}
+                  placeholder="https://api.example.com/v1"
+                  disabled={Boolean(settings.providerId)}
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                API Key
+                <input
+                  type="password"
+                  value={settings.apiKey}
+                  onChange={(event) => setSettings((current) => ({ ...current, apiKey: event.target.value }))}
+                  placeholder="可留空使用 AI_API_KEY"
+                  autoComplete="off"
+                  disabled={Boolean(settings.providerId)}
+                  spellCheck={false}
+                />
+                <span className="model-status">
+                  {selectedProvider
+                    ? selectedProviderHasKey
+                      ? '已从当前 API 服务商配置加载 API Key，不会显示明文。'
+                      : '当前 API 服务商未配置 API Key。'
+                    : selectedProviderHasKey
+                      ? '已从配置文件加载 API Key，不会显示明文。'
+                      : '未检测到 AI_API_KEY。'}
+                </span>
+              </label>
+              <label>
+                接口模式
+                <select
+                  value={settings.apiMode}
+                  onChange={(event) =>
+                    setSettings((current) => ({ ...current, apiMode: event.target.value as ApiModeSetting }))
+                  }
+                >
+                  <option value="env">使用当前 API 配置</option>
+                  <option value="chat-completions">Chat Completions 兼容</option>
+                  <option value="responses">Responses 兼容</option>
+                </select>
+              </label>
+            </>
+          )}
           <label>
             模型
             <div className="model-picker">

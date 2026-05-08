@@ -1,6 +1,7 @@
 export type TutorLanguage = 'zh-CN' | 'en';
 export type ApiMode = 'chat-completions' | 'responses';
 export type ApiModeSetting = ApiMode | 'env';
+export type ApiConnectionMode = 'direct' | 'proxy';
 export type InputMode = 'ocr-text' | 'image';
 export type OcrLanguage = 'chi_sim' | 'eng';
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
@@ -15,6 +16,7 @@ export interface RegionBounds {
 }
 
 export interface TutorSettings {
+  apiConnectionMode: ApiConnectionMode;
   providerId: string;
   model: string;
   language: TutorLanguage;
@@ -22,6 +24,8 @@ export interface TutorSettings {
   apiMode: ApiModeSetting;
   apiBaseUrl: string;
   apiKey: string;
+  proxyUrl: string;
+  proxyToken: string;
   inputMode: InputMode;
   ocrLanguage: OcrLanguage;
   ocrMathMode: boolean;
@@ -38,11 +42,14 @@ export interface ApiProviderOption {
 }
 
 export interface ApiRuntimeDefaults {
+  apiConnectionMode: ApiConnectionMode;
   apiBaseUrl: string;
   apiMode?: ApiMode;
   hasApiKey: boolean;
   providerId: string;
   providers: ApiProviderOption[];
+  proxyUrl: string;
+  hasProxyToken: boolean;
 }
 
 export interface ExplainRequest {

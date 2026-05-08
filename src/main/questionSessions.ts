@@ -40,7 +40,7 @@ export function createQuestionSession(input: CreateQuestionSessionInput): Stored
   const session: StoredQuestionSession = {
     id: randomUUID(),
     createdAt: Date.now(),
-    settings: { ...input.settings },
+    settings: { ...input.settings, apiKey: '', proxyToken: '' },
     sourceMode: input.sourceMode,
     problemContext: input.problemContext,
     turns: [

@@ -7,6 +7,22 @@ export default [
   {
     ignores: ['out/**', 'dist/**', 'release/**', 'node_modules/**']
   },
+  {
+    files: ['server/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        AbortController: 'readonly',
+        Buffer: 'readonly',
+        TextDecoder: 'readonly',
+        URL: 'readonly',
+        clearTimeout: 'readonly',
+        console: 'readonly',
+        fetch: 'readonly',
+        process: 'readonly',
+        setTimeout: 'readonly'
+      }
+    }
+  },
   js.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],

@@ -1,4 +1,5 @@
 import type {
+  ApiConnectionMode,
   ApiMode,
   ApiProviderOption,
   ApiRuntimeDefaults,
@@ -84,6 +85,10 @@ function requireThirdPartyBaseUrl(baseUrl: string): void {
   }
 }
 
+function parseApiConnectionMode(value: string | undefined): ApiConnectionMode {
+  return value === 'proxy' ? 'proxy' : 'direct';
+}
+
 export function resolveApiConfig(settings: TutorSettings): ApiConfig {
   const connection = resolveApiConnectionConfig(settings);
   const model = settings.model.trim();
@@ -151,11 +156,14 @@ export function getRuntimeApiDefaults(): ApiRuntimeDefaults {
   const apiMode = defaultProvider?.apiMode || (process.env.AI_API_MODE ? parseApiMode(process.env.AI_API_MODE) : undefined);
 
   return {
+    apiConnectionMode: parseApiConnectionMode(process.env.TUTOR_API_CONNECTION_MODE),
     apiBaseUrl,
     ...(apiMode ? { apiMode } : {}),
     hasApiKey: defaultProvider?.hasApiKey || Boolean(process.env.AI_API_KEY?.trim()),
     providerId: defaultProvider?.id || '',
-    providers
+    providers,
+    proxyUrl: process.env.TUTOR_PROXY_URL?.trim() || '',
+    hasProxyToken: Boolean(process.env.TUTOR_PROXY_TOKEN?.trim())
   };
 }
 

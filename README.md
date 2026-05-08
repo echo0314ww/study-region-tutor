@@ -76,6 +76,42 @@ export AI_API_KEY="你的第三方 API Key"
 项目也会读取工作目录下的 `.env.local` 和 `.env`，其中 `.env.local` 已在 `.gitignore` 中，不会提交到仓库。
 应用启动时只会把配置文件里的 Base URL 和接口模式落实到运行时设置里；API Key 只在主进程里使用，设置面板只显示是否已配置，不会回填或展示明文。
 
+## 本机局域网代理模式
+
+如果你想让 1-2 个用户使用你本机 `.env.local` 里的第三方 API 配置，而不把 API Key 发给用户，可以在开发电脑上启动一个代理服务。用户端只配置代理地址和访问 Token，截图/OCR 仍在用户电脑本地完成，真正的第三方 API Key 只留在代理服务所在电脑。
+
+在你的 `.env.local` 中继续保留 `AI_PROVIDERS`、`AI_DEFAULT_PROVIDER` 和各个 `AI_PROVIDER_*` 配置，并额外添加：
+
+```text
+TUTOR_PROXY_PORT=8787
+TUTOR_PROXY_URL=http://127.0.0.1:8787
+TUTOR_PROXY_TOKEN=换成一段足够长的随机字符串
+```
+
+启动代理服务：
+
+```bash
+npm run proxy:dev
+```
+
+服务会监听 `0.0.0.0:8787`，并自动监听 `.env.local` / `.env` 的变化。你只要修改 `.env.local` 里的服务商、Key 或默认服务商，代理服务会自动重新加载；用户端刷新设置里的“代理服务商”即可拿到最新配置。API Key 不会通过 `/providers` 或 `/models` 返回给用户端。
+
+在用户电脑上：
+
+1. 确保和你的电脑在同一个局域网。
+2. 在设置面板把“API 连接模式”切换为“代理服务”。
+3. “代理服务地址”填写 `http://你的电脑局域网IP:8787`。
+4. “代理访问 Token”填写你在 `.env.local` 中设置的 `TUTOR_PROXY_TOKEN`。
+5. 点击“刷新代理服务商”，选择 API 服务商和模型后使用。
+
+如果用户电脑访问不到代理服务，请检查 Windows 防火墙是否允许 Node.js 入站连接，或者先用 `http://你的电脑局域网IP:8787/health` 测试连通性。当前方案不使用内网穿透，所以只能在同一局域网内访问。
+
+代理服务可用性检查：
+
+```bash
+npm run proxy:check
+```
+
 ## 开发运行
 
 ```bash
@@ -112,6 +148,7 @@ npm run typecheck
 npm run lint
 npm run test
 npm run build
+npm run proxy:check
 ```
 
 也可以一次执行：

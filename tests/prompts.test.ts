@@ -4,6 +4,7 @@ import { buildTutorInstructions } from '../src/main/prompts';
 describe('buildTutorInstructions', () => {
   it('keeps the app framed as learning support', () => {
     const prompt = buildTutorInstructions({
+      apiConnectionMode: 'direct',
       providerId: '',
       model: 'gpt-4.1-mini',
       language: 'zh-CN',
@@ -11,6 +12,8 @@ describe('buildTutorInstructions', () => {
       apiMode: 'chat-completions',
       apiBaseUrl: 'https://third-party.example/v1',
       apiKey: 'test-key',
+      proxyUrl: '',
+      proxyToken: '',
       inputMode: 'ocr-text',
       ocrLanguage: 'chi_sim',
       ocrMathMode: true,
@@ -24,6 +27,7 @@ describe('buildTutorInstructions', () => {
 
   it('supports reasoning-only mode', () => {
     const prompt = buildTutorInstructions({
+      apiConnectionMode: 'direct',
       providerId: '',
       model: 'gpt-4.1-mini',
       language: 'zh-CN',
@@ -31,6 +35,8 @@ describe('buildTutorInstructions', () => {
       apiMode: 'chat-completions',
       apiBaseUrl: 'https://third-party.example/v1',
       apiKey: 'test-key',
+      proxyUrl: '',
+      proxyToken: '',
       inputMode: 'ocr-text',
       ocrLanguage: 'chi_sim',
       ocrMathMode: true,
