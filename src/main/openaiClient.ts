@@ -1134,10 +1134,6 @@ export async function explainImageWithMetadata(
   return answer;
 }
 
-export async function explainImage(dataUrl: string, settings: TutorSettings): Promise<string> {
-  return (await explainImageWithMetadata(dataUrl, settings)).text;
-}
-
 export async function explainRecognizedTextWithMetadata(
   recognizedText: string,
   settings: TutorSettings,
@@ -1177,8 +1173,4 @@ export async function explainRecognizedTextWithMetadata(
   }
 
   return answer;
-}
-
-export async function explainRecognizedText(recognizedText: string, settings: TutorSettings): Promise<string> {
-  return (await explainRecognizedTextWithMetadata(recognizedText, settings)).text;
 }

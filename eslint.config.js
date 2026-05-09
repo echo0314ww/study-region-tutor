@@ -8,7 +8,7 @@ export default [
     ignores: ['out/**', 'dist/**', 'release/**', 'node_modules/**']
   },
   {
-    files: ['server/**/*.mjs'],
+    files: ['server/**/*.mjs', 'scripts/**/*.mjs'],
     languageOptions: {
       globals: {
         AbortController: 'readonly',

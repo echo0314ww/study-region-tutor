@@ -40,11 +40,10 @@ npm install
 
 ## 配置第三方 API
 
-可以在应用的设置面板里填写：
+第三方 API 的 Base URL 和 API Key 从 `.env.local`、`.env` 或环境变量读取，不在设置面板中明文填写。设置面板里可以选择：
 
-- API Base URL，例如 `https://api.example.com/v1`
-- API Key
-- 接口模式：默认选 `Chat Completions 兼容`
+- API 服务商
+- 接口模式：默认选 `使用当前 API 配置`
 - 模型名：应用启动时会从第三方 API 获取可选模型列表，也可以点击刷新重新获取；如果服务商不支持模型列表，仍可手动填写
 - 思考程度：可选 `low`、`medium`、`high`、`xhigh`
 - 输入方式：默认选 `直接发送图片`
@@ -86,6 +85,10 @@ export AI_API_KEY="你的第三方 API Key"
 TUTOR_PROXY_PORT=8787
 TUTOR_PROXY_URL=http://127.0.0.1:8787
 TUTOR_PROXY_TOKEN=换成一段足够长的随机字符串
+# 可选：npm run ngrok:dev 会读取这一项并自动配置 ngrok
+NGROK_AUTHTOKEN=你的 ngrok authtoken
+# 自动生成：npm run ngrok:dev 检测到公网地址后会写入或更新这一行
+TUTOR_PUBLIC_PROXY_URL=https://xxxx.ngrok-free.app
 ```
 
 启动代理服务：
@@ -94,17 +97,44 @@ TUTOR_PROXY_TOKEN=换成一段足够长的随机字符串
 npm run proxy:dev
 ```
 
-服务会监听 `0.0.0.0:8787`，并自动监听 `.env.local` / `.env` 的变化。你只要修改 `.env.local` 里的服务商、Key 或默认服务商，代理服务会自动重新加载；用户端刷新设置里的“代理服务商”即可拿到最新配置。API Key 不会通过 `/providers` 或 `/models` 返回给用户端。
+服务会监听 `0.0.0.0:8787`，并自动监听 `.env.local` / `.env` 的变化。你只要修改 `.env.local` 里的服务商、Key、默认服务商或由 ngrok 脚本写入的 `TUTOR_PUBLIC_PROXY_URL`，代理服务会自动重新加载；用户端刷新设置里的“代理服务商”即可拿到最新配置。API Key 不会通过 `/providers` 或 `/models` 返回给用户端。
+
+启动后终端会显示可用地址：
+
+```text
+[proxy] local:  http://127.0.0.1:8787
+[proxy] lan:    http://192.168.1.23:8787
+[proxy] public: https://xxxx.ngrok-free.app
+```
+
+其中 `local` 只适合你本机，`lan` 适合同一局域网用户，`public` 适合通过 ngrok 等公网隧道访问。代理服务会定期检测网卡 IP，局域网 IP 变化后终端日志和 `/health` 返回的地址列表会更新。
 
 在用户电脑上：
 
 1. 确保和你的电脑在同一个局域网。
 2. 在设置面板把“API 连接模式”切换为“代理服务”。
-3. “代理服务地址”填写 `http://你的电脑局域网IP:8787`。
+3. 普通设置中只显示代理服务地址连接状态，不展示远程地址输入框；内置默认公网代理地址可用时会提示“默认代理服务地址连接成功”。
 4. “代理访问 Token”填写你在 `.env.local` 中设置的 `TUTOR_PROXY_TOKEN`。
 5. 点击“刷新代理服务商”，选择 API 服务商和模型后使用。
 
-如果用户电脑访问不到代理服务，请检查 Windows 防火墙是否允许 Node.js 入站连接，或者先用 `http://你的电脑局域网IP:8787/health` 测试连通性。当前方案不使用内网穿透，所以只能在同一局域网内访问。
+如果提示“默认代理服务地址连接失败，请到高级设置自行配置远程服务地址”，点击设置标题旁的“高级设置”进入独立调试视图。该视图只用于代理地址调试：填写代理服务地址、点击“验证是否连接成功”、必要时点击“恢复默认地址”。同一局域网填写 `http://你的电脑局域网IP:8787`，公网用户填写 ngrok 的 HTTPS 地址。验证成功后返回普通设置页，再刷新代理服务商并选择 API 服务。
+
+如果用户电脑访问不到代理服务，请检查 Windows 防火墙是否允许 Node.js 入站连接，或者先用 `http://你的电脑局域网IP:8787/health` 测试连通性。公网访问需要额外启动 ngrok 托管脚本：
+
+```bash
+npm run ngrok:dev
+```
+
+这个脚本会读取 `.env.local` 里的 `NGROK_AUTHTOKEN` 和 `TUTOR_PROXY_PORT`，自动配置 ngrok、启动 `ngrok http <端口>`，并把检测到的 HTTPS 公网地址写回 `.env.local` 的 `TUTOR_PUBLIC_PROXY_URL`。写入时会保留 `.env.local` 原有内容，只更新这一行；`npm run proxy:dev` 检测到文件变化后会自动重新加载，并在 `/health` 里显示新的公网地址。
+
+公网访问时，你的电脑需要同时保持两个终端运行：
+
+```bash
+npm run proxy:dev
+npm run ngrok:dev
+```
+
+如果之后修改了 `.env.local` 里的 `NGROK_AUTHTOKEN` 或 `TUTOR_PROXY_PORT`，`npm run ngrok:dev` 会自动重启 ngrok 隧道并重新写入 `TUTOR_PUBLIC_PROXY_URL`。ngrok 免费隧道地址可能每次启动都会变化，请以 `.env.local` 中最新的 `TUTOR_PUBLIC_PROXY_URL` 或 `/health` 返回的 `serviceUrls.public` 为准。
 
 代理服务可用性检查：
 
@@ -177,6 +207,8 @@ GET /announcements/latest
 GET /announcements/stream
 ```
 
+`/health` 会返回 `serviceUrls.local`、`serviceUrls.lan` 和 `serviceUrls.public`，方便确认当前代理服务可复制给本机、局域网或公网用户的地址。
+
 需要 Token 的接口：
 
 ```text
@@ -232,6 +264,7 @@ npm run lint
 npm run test
 npm run build
 npm run proxy:check
+node --check server/ngrok-dev.mjs
 ```
 
 也可以一次执行：

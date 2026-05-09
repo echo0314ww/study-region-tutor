@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc';
-import type { AnnouncementEvent } from '../shared/types';
+import type { AnnouncementEvent, ProxyHealthResult } from '../shared/types';
 
 interface ProxyEnvelope<T> {
   ok: boolean;
@@ -10,7 +10,6 @@ interface ProxyEnvelope<T> {
 
 interface AnnouncementStreamEvent extends Partial<AnnouncementEvent> {
   type?: string;
-  message?: string;
 }
 
 const RETRY_DELAY_MS = 5000;
@@ -21,7 +20,10 @@ let activeController: AbortController | undefined;
 let reconnectTimer: NodeJS.Timeout | undefined;
 
 function normalizeBaseUrl(sourceUrl?: string): string {
-  const baseUrl = (sourceUrl?.trim() || process.env.TUTOR_PROXY_URL?.trim() || '').replace(/\/+$/, '');
+  const baseUrl = (sourceUrl === undefined ? process.env.TUTOR_PROXY_URL?.trim() || '' : sourceUrl.trim()).replace(
+    /\/+$/,
+    ''
+  );
 
   if (!baseUrl) {
     return '';
@@ -34,10 +36,6 @@ function normalizeBaseUrl(sourceUrl?: string): string {
   }
 
   return baseUrl;
-}
-
-function announcementEndpoint(baseUrl: string, path: string): string {
-  return `${baseUrl}${path}`;
 }
 
 function parseEnvelope<T>(text: string): ProxyEnvelope<T> {
@@ -93,19 +91,62 @@ export async function fetchLatestAnnouncement(sourceUrl?: string): Promise<Annou
     return normalizeAnnouncementEvent(undefined, '');
   }
 
-  const response = await fetch(announcementEndpoint(baseUrl, '/announcements/latest'), {
-    headers: {
-      Accept: 'application/json'
-    }
-  });
-  const text = await response.text();
-  const envelope = parseEnvelope<AnnouncementEvent>(text);
+  try {
+    const response = await fetch(`${baseUrl}/announcements/latest`, {
+      headers: {
+        Accept: 'application/json'
+      }
+    });
+    const text = await response.text();
+    const envelope = parseEnvelope<AnnouncementEvent>(text);
 
-  if (!response.ok || !envelope.ok) {
-    throw new Error(envelope.error || `公告服务请求失败 (${response.status})。`);
+    if (!response.ok || !envelope.ok) {
+      throw new Error(envelope.error || `公告服务请求失败 (${response.status})。`);
+    }
+
+    return normalizeAnnouncementEvent(envelope.data, baseUrl);
+  } catch (error) {
+    console.warn(`Latest announcement unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    return normalizeAnnouncementEvent(undefined, baseUrl);
+  }
+}
+
+export async function checkProxyHealth(sourceUrl?: string): Promise<ProxyHealthResult> {
+  const baseUrl = normalizeBaseUrl(sourceUrl);
+
+  if (!baseUrl) {
+    return {
+      ok: false,
+      sourceUrl: '',
+      message: '未配置代理服务地址。'
+    };
   }
 
-  return normalizeAnnouncementEvent(envelope.data, baseUrl);
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      headers: {
+        Accept: 'application/json'
+      }
+    });
+    const text = await response.text();
+    const envelope = parseEnvelope<{ status?: string }>(text);
+
+    if (!response.ok || !envelope.ok) {
+      throw new Error(envelope.error || `代理服务请求失败 (${response.status})。`);
+    }
+
+    return {
+      ok: envelope.data?.status === 'ok' || envelope.ok,
+      sourceUrl: baseUrl,
+      message: '代理服务连接成功。'
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      sourceUrl: baseUrl,
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
 }
 
 function scheduleReconnect(): void {
@@ -162,7 +203,7 @@ async function openAnnouncementStream(baseUrl: string, webContents: WebContents)
   activeController = controller;
 
   try {
-    const response = await fetch(announcementEndpoint(baseUrl, '/announcements/stream'), {
+    const response = await fetch(`${baseUrl}/announcements/stream`, {
       headers: {
         Accept: 'text/event-stream'
       },

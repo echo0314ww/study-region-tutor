@@ -1,12 +1,12 @@
 {
-  "allAnnouncement": [],
+  "allAnnouncement": ["welcome-001"],
   "announcements": [
     {
       "id": "welcome-001",
-      "title": "系统公告",
-      "content": "公告功能已接入本地代理服务。你可以修改 announcements/current.json，保存后在线用户会实时收到更新。",
-      "level": "info",
-      "publishedAt": "2026-05-09T20:00:00+08:00",
+      "title": "嘿嘿",
+      "content": "只可用chatgpt模型，选择chatgpt5.5就行",
+      "level": "",
+      "publishedAt": "2026-05-09",
       "popup": false
     },
     {

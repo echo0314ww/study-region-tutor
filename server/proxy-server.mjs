@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, watch } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { clearInterval, setInterval } from 'node:timers';
 
@@ -13,6 +14,7 @@ let reloadTimer;
 let activeAnnouncements = [];
 let announcementReloadTimer;
 let announcementWatcher;
+let lastServiceUrlSignature = '';
 const announcementClients = new Set();
 
 function parseEnvValue(raw) {
@@ -92,6 +94,60 @@ function normalizeBaseUrl(baseUrl) {
   return baseUrl.replace(/\/+$/, '');
 }
 
+function normalizeOptionalUrl(value, label) {
+  const url = String(value || '').trim().replace(/\/+$/, '');
+
+  if (!url) {
+    return '';
+  }
+
+  try {
+    new URL(url);
+  } catch {
+    throw new Error(`${label} must be a valid URL, for example https://example.ngrok-free.app.`);
+  }
+
+  return url;
+}
+
+function lanServiceUrls(port) {
+  const urls = [];
+
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const address of addresses || []) {
+      const isIpv4 = address.family === 'IPv4' || address.family === 4;
+
+      if (isIpv4 && !address.internal) {
+        urls.push(`http://${address.address}:${port}`);
+      }
+    }
+  }
+
+  return [...new Set(urls)].sort();
+}
+
+function serviceUrls(config = activeConfig) {
+  return {
+    local: [`http://127.0.0.1:${config.port}`],
+    lan: lanServiceUrls(config.port),
+    public: config.publicProxyUrl ? [config.publicProxyUrl] : []
+  };
+}
+
+function logServiceUrls(config = activeConfig) {
+  const urls = serviceUrls(config);
+  const signature = JSON.stringify(urls);
+
+  if (signature === lastServiceUrlSignature) {
+    return;
+  }
+
+  lastServiceUrlSignature = signature;
+  console.log(`[proxy] local:  ${urls.local.join(', ')}`);
+  console.log(`[proxy] lan:    ${urls.lan.length ? urls.lan.join(', ') : '(none detected)'}`);
+  console.log(`[proxy] public: ${urls.public.length ? urls.public.join(', ') : '(not configured; set TUTOR_PUBLIC_PROXY_URL)'}`);
+}
+
 function loadConfig() {
   const env = readRuntimeEnv();
   const token = String(env.TUTOR_PROXY_TOKEN || '').trim();
@@ -157,12 +213,14 @@ function loadConfig() {
   const port = Number.parseInt(String(env.TUTOR_PROXY_PORT || DEFAULT_PORT), 10);
   const maxBodyMb = Number.parseInt(String(env.TUTOR_PROXY_MAX_BODY_MB || DEFAULT_MAX_BODY_MB), 10);
   const announcementFile = String(env.ANNOUNCEMENT_FILE || DEFAULT_ANNOUNCEMENT_FILE).trim();
+  const publicProxyUrl = normalizeOptionalUrl(env.TUTOR_PUBLIC_PROXY_URL, 'TUTOR_PUBLIC_PROXY_URL');
 
   return {
     loadedAt: new Date().toISOString(),
     token,
     port: Number.isFinite(port) && port > 0 ? port : DEFAULT_PORT,
     maxBodyBytes: (Number.isFinite(maxBodyMb) && maxBodyMb > 0 ? maxBodyMb : DEFAULT_MAX_BODY_MB) * 1024 * 1024,
+    publicProxyUrl,
     announcementEnabled: parseBoolean(env.ANNOUNCEMENT_ENABLED, true),
     announcementPath: resolve(process.cwd(), announcementFile || DEFAULT_ANNOUNCEMENT_FILE),
     providers: providers.map((provider) => ({
@@ -192,7 +250,10 @@ function loadConfigSafely() {
 function scheduleReload() {
   clearTimeout(reloadTimer);
   reloadTimer = setTimeout(() => {
-    activeConfig = loadConfigSafely();
+    const previousPort = activeConfig.port;
+    const nextConfig = loadConfigSafely();
+    activeConfig = { ...nextConfig, port: previousPort };
+    logServiceUrls(activeConfig);
     scheduleAnnouncementReload();
   }, 180);
 }
@@ -1158,6 +1219,7 @@ async function route(req, res) {
         status: 'ok',
         loadedAt: activeConfig.loadedAt,
         providerCount: activeConfig.providers.length,
+        serviceUrls: serviceUrls(activeConfig),
         announcementEnabled: activeConfig.announcementEnabled,
         announcementCount: activeAnnouncements.length,
         hasAnnouncement: activeAnnouncements.length > 0
@@ -1233,5 +1295,10 @@ resetAnnouncementWatcher();
 
 server.listen(activeConfig.port, '0.0.0.0', () => {
   console.log(`[proxy] listening on http://0.0.0.0:${activeConfig.port}`);
+  logServiceUrls(activeConfig);
   console.log('[proxy] use GET /health to check status; announcements are public; API proxy endpoints require Authorization: Bearer <TUTOR_PROXY_TOKEN>');
 });
+
+setInterval(() => {
+  logServiceUrls(activeConfig);
+}, 30000);

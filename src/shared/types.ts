@@ -49,6 +49,12 @@ export interface AnnouncementEvent {
   receivedAt: string;
 }
 
+export interface ProxyHealthResult {
+  ok: boolean;
+  sourceUrl: string;
+  message: string;
+}
+
 export interface ApiProviderOption {
   id: string;
   name: string;

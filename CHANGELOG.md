@@ -1,5 +1,25 @@
 # 版本更新记录
 
+## Unreleased
+
+暂无。
+
+## v0.5.0 - 2026-05-10
+
+### 新增
+
+- 代理服务支持 `TUTOR_PUBLIC_PROXY_URL`，可在启动日志和 `/health` 中显示 ngrok 等公网入口。
+- `/health` 新增 `serviceUrls.local`、`serviceUrls.lan`、`serviceUrls.public`，用于区分本机、局域网和公网访问地址。
+- 新增 `npm run ngrok:dev`，可自动读取 `.env.local` 的 `NGROK_AUTHTOKEN` 和 `TUTOR_PROXY_PORT`，启动 ngrok 隧道并回写 `TUTOR_PUBLIC_PROXY_URL`。
+
+### 改进
+
+- 设置面板代理模式下默认隐藏远程服务地址输入框，改为在“高级设置”中手动修改。
+- ngrok 隧道脚本会监听 `.env.local` / `.env`，当 token 或端口变化时自动重启隧道，并保留 `.env.local` 原有内容只更新公网地址行。
+- 代理模式内置默认公网代理地址，普通设置区改为显示默认代理地址连接状态；“高级设置”改为独立调试视图，只保留代理地址输入、连接验证和恢复默认地址。
+- 公告连接改为先检测代理 `/health`，默认代理离线时不再启动即请求公告接口刷屏报错，而是在后台定时重试。
+- 精简设置面板，移除本地直连模式下的 API Base URL、API Key 明细输入区和当前服务商详情提示，避免展示不必要的配置细节。
+
 ## v0.4.0 - 2026-05-09
 
 ### 新增

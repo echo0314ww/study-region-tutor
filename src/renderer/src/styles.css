@@ -268,6 +268,18 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.settings-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-advanced-button {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
 .update-box {
   display: grid;
   gap: 10px;
@@ -666,6 +678,49 @@ select {
 }
 
 .model-status.danger {
+  color: #a43a36;
+}
+
+.proxy-summary {
+  display: grid;
+  gap: 4px;
+  color: #243a2d;
+  font-weight: 650;
+}
+
+.proxy-summary span {
+  color: #607167;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.proxy-summary.danger span {
+  color: #a43a36;
+}
+
+.proxy-advanced-page {
+  display: grid;
+  gap: 10px;
+}
+
+.proxy-advanced-page label {
+  margin-bottom: 0;
+}
+
+.proxy-validation-result {
+  padding: 9px 10px;
+  border: 1px solid #d6e4dc;
+  border-radius: 8px;
+  background: #f7fbf8;
+  color: #607167;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.proxy-validation-result.danger {
+  border-color: #e9c2bf;
+  background: #fff7f6;
   color: #a43a36;
 }
 

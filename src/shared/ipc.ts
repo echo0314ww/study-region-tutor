@@ -14,6 +14,7 @@ export const IPC_CHANNELS = {
   updateStatus: 'tutor:update-status',
   getLatestAnnouncement: 'tutor:get-latest-announcement',
   connectAnnouncements: 'tutor:connect-announcements',
+  checkProxyHealth: 'tutor:check-proxy-health',
   announcement: 'tutor:announcement',
   getAppVersion: 'tutor:get-app-version',
   setDebugMode: 'tutor:set-debug-mode',

@@ -39,6 +39,7 @@ import {
   updateQuestionSessionResponseId
 } from './questionSessions';
 import {
+  checkProxyHealth,
   connectAnnouncementStream,
   fetchLatestAnnouncement,
   stopAnnouncementStream
@@ -368,6 +369,10 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC_CHANNELS.connectAnnouncements, (event, sourceUrl?: string): void => {
     connectAnnouncementStream(sourceUrl, event.sender);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.checkProxyHealth, (_event, sourceUrl?: string) => {
+    return checkProxyHealth(sourceUrl);
   });
 
   ipcMain.handle(IPC_CHANNELS.listModels, (_event, settings: TutorSettings): Promise<ModelListResult> => {

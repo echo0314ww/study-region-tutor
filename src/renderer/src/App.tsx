@@ -42,10 +42,15 @@ type UiConversationTurn = QuestionSessionTurn & {
   id: string;
 };
 
+type ProxyHealthStatus = 'idle' | 'checking' | 'success' | 'error';
+type SettingsView = 'normal' | 'proxyAdvanced';
+
 const MIN_REGION = 96;
 const MIN_RESULT_PANEL_WIDTH = 320;
 const MIN_RESULT_PANEL_HEIGHT = 220;
 const HANDLE_NAMES: DragMode[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
+const BUILT_IN_PROXY_URL = 'https://mariyah-trailless-graig.ngrok-free.dev';
+const ANNOUNCEMENT_HEALTH_RETRY_MS = 15000;
 
 const DEFAULT_REGION: RegionBounds = {
   x: 220,
@@ -90,13 +95,27 @@ function settingsWithApiDefaults(defaults: ApiRuntimeDefaults): TutorSettings {
     providerId: defaults.providerId || DEFAULT_SETTINGS.providerId,
     apiBaseUrl: defaults.apiBaseUrl || DEFAULT_SETTINGS.apiBaseUrl,
     apiMode: defaults.providerId ? 'env' : defaults.apiMode || DEFAULT_SETTINGS.apiMode,
-    proxyUrl: defaults.proxyUrl || DEFAULT_SETTINGS.proxyUrl
+    proxyUrl: DEFAULT_SETTINGS.proxyUrl
   };
 }
 
 const MODEL_PLACEHOLDER_VALUE = '__select_model__';
 const CUSTOM_MODEL_VALUE = '__custom_model__';
 const READ_ANNOUNCEMENTS_KEY = 'study-region-tutor-read-announcements';
+
+function effectiveProxyUrl(settings: TutorSettings): string {
+  return settings.proxyUrl.trim() || BUILT_IN_PROXY_URL;
+}
+
+function settingsWithEffectiveProxyUrl(settings: TutorSettings): TutorSettings {
+  if (settings.apiConnectionMode !== 'proxy') {
+    return settings;
+  }
+
+  const proxyUrl = effectiveProxyUrl(settings);
+
+  return proxyUrl ? { ...settings, proxyUrl } : settings;
+}
 
 function loadReadAnnouncementIds(): Set<string> {
   try {
@@ -279,6 +298,9 @@ export function App(): JSX.Element {
   const [isModelCustom, setIsModelCustom] = useState(false);
   const [apiDefaults, setApiDefaults] = useState<ApiRuntimeDefaults | null>(null);
   const [apiProviders, setApiProviders] = useState<ApiProviderOption[]>([]);
+  const [settingsView, setSettingsView] = useState<SettingsView>('normal');
+  const [proxyHealthStatus, setProxyHealthStatus] = useState<ProxyHealthStatus>('idle');
+  const [proxyHealthMessage, setProxyHealthMessage] = useState('');
   const [appVersion, setAppVersion] = useState('');
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusEvent>({
     status: 'idle',
@@ -297,6 +319,7 @@ export function App(): JSX.Element {
   const streamingAssistantTurnIdRef = useRef('');
   const streamingAnswerTextRef = useRef('');
   const modelRequestIdRef = useRef(0);
+  const proxyHealthRequestIdRef = useRef(0);
   const isModelCustomRef = useRef(false);
   const lastPointerPositionRef = useRef<{ x: number; y: number } | null>(null);
   const isMousePassthroughRef = useRef(false);
@@ -397,7 +420,7 @@ export function App(): JSX.Element {
     setModelListError('');
 
     try {
-      const response = await window.studyTutor.listModels(sourceSettings);
+      const response = await window.studyTutor.listModels(settingsWithEffectiveProxyUrl(sourceSettings));
 
       if (modelRequestIdRef.current !== requestId) {
         return;
@@ -436,7 +459,7 @@ export function App(): JSX.Element {
       setModelListError('');
 
       try {
-        const providers = await window.studyTutor.listApiProviders(sourceSettings);
+        const providers = await window.studyTutor.listApiProviders(settingsWithEffectiveProxyUrl(sourceSettings));
         const currentProvider = providers.find((provider) => provider.id === sourceSettings.providerId);
         const defaultProvider = providers.find((provider) => provider.isDefault) || providers[0];
         const nextProvider = currentProvider || defaultProvider;
@@ -483,12 +506,10 @@ export function App(): JSX.Element {
   const modelStatusText = isModelListLoading
     ? '正在获取模型列表...'
     : modelListError || (modelOptions.length > 0 ? `已加载 ${modelOptions.length} 个模型` : '尚未加载模型列表');
-  const selectedProvider = useMemo(
-    () => apiProviders.find((provider) => provider.id === settings.providerId),
-    [apiProviders, settings.providerId]
-  );
   const isProxyConnection = settings.apiConnectionMode === 'proxy';
-  const selectedProviderHasKey = selectedProvider ? selectedProvider.hasApiKey : apiDefaults?.hasApiKey;
+  const manualProxyUrl = settings.proxyUrl.trim();
+  const currentProxyUrl = manualProxyUrl || BUILT_IN_PROXY_URL || apiDefaults?.proxyUrl || '';
+  const isBuiltInProxyUrlActive = Boolean(!manualProxyUrl && BUILT_IN_PROXY_URL && currentProxyUrl === BUILT_IN_PROXY_URL);
   const hasProxyToken = Boolean(settings.proxyToken.trim()) || Boolean(apiDefaults?.hasProxyToken);
   const isCheckingUpdate = updateStatus.status === 'checking' || updateStatus.status === 'downloading';
   const updateMessage = [
@@ -499,8 +520,8 @@ export function App(): JSX.Element {
     .filter(Boolean)
     .join(' · ');
   const announcementSourceUrl = useMemo(
-    () => settings.proxyUrl.trim() || apiDefaults?.proxyUrl || '',
-    [apiDefaults?.proxyUrl, settings.proxyUrl]
+    () => currentProxyUrl,
+    [currentProxyUrl]
   );
   const hasUnreadAnnouncement = announcements.some((item) => !readAnnouncementIds.has(item.id));
   const announcementPanelLevel = announcements.some((item) => item.level === 'critical')
@@ -508,6 +529,44 @@ export function App(): JSX.Element {
     : announcements.some((item) => item.level === 'warning')
       ? 'warning'
       : '';
+  const proxyHealthText = useMemo(() => {
+    const proxyKind = isBuiltInProxyUrlActive ? '默认代理服务地址' : '自定义代理服务地址';
+
+    if (!currentProxyUrl) {
+      return '未配置默认代理服务地址，请到高级设置自行配置远程服务地址。';
+    }
+
+    if (proxyHealthStatus === 'checking') {
+      return `正在检测${proxyKind}...`;
+    }
+
+    if (proxyHealthStatus === 'success') {
+      return `${proxyKind}连接成功。`;
+    }
+
+    if (proxyHealthStatus === 'error') {
+      return isBuiltInProxyUrlActive
+        ? '默认代理服务地址连接失败，请到高级设置自行配置远程服务地址。'
+        : `自定义代理服务地址连接失败：${proxyHealthMessage || '请检查高级设置。'}`;
+    }
+
+    return isBuiltInProxyUrlActive ? '默认代理服务地址待检测。' : '代理服务地址待检测。';
+  }, [currentProxyUrl, isBuiltInProxyUrlActive, proxyHealthMessage, proxyHealthStatus]);
+  const proxyValidationText = useMemo(() => {
+    if (proxyHealthStatus === 'checking') {
+      return '正在验证代理服务地址...';
+    }
+
+    if (proxyHealthStatus === 'success') {
+      return '代理服务地址连接成功，可以返回普通设置选择 API 服务。';
+    }
+
+    if (proxyHealthStatus === 'error') {
+      return `代理服务地址连接失败，请检查地址是否正确，或确认 proxy/ngrok 服务已启动。${proxyHealthMessage ? ` ${proxyHealthMessage}` : ''}`;
+    }
+
+    return proxyHealthMessage;
+  }, [proxyHealthMessage, proxyHealthStatus]);
 
   const markAnnouncementsRead = useCallback((items: Announcement[]): void => {
     setReadAnnouncementIds((current) => {
@@ -581,6 +640,41 @@ export function App(): JSX.Element {
       ].join('\n');
     },
     [apiProviders, settings.providerId]
+  );
+
+  const validateProxyConnection = useCallback(
+    async (proxyUrl = currentProxyUrl): Promise<void> => {
+      if (!proxyUrl) {
+        proxyHealthRequestIdRef.current += 1;
+        setProxyHealthStatus('error');
+        setProxyHealthMessage('未配置代理服务地址。');
+        return;
+      }
+
+      const requestId = proxyHealthRequestIdRef.current + 1;
+      proxyHealthRequestIdRef.current = requestId;
+      setProxyHealthStatus('checking');
+      setProxyHealthMessage('');
+
+      try {
+        const health = await window.studyTutor.checkProxyHealth(proxyUrl);
+
+        if (proxyHealthRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setProxyHealthStatus(health.ok ? 'success' : 'error');
+        setProxyHealthMessage(health.message);
+      } catch (caught) {
+        if (proxyHealthRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setProxyHealthStatus('error');
+        setProxyHealthMessage(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [currentProxyUrl]
   );
 
   const appendAnswerDelta = useCallback((text: string, reset = false): void => {
@@ -709,11 +803,59 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     let isMounted = true;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribeAnnouncement = window.studyTutor.onAnnouncement((event) => {
       if (isMounted) {
         handleAnnouncementEvent(event);
       }
     });
+
+    function scheduleRetry(): void {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+
+      retryTimer = setTimeout(() => {
+        void connectWhenHealthy();
+      }, ANNOUNCEMENT_HEALTH_RETRY_MS);
+    }
+
+    async function connectWhenHealthy(): Promise<void> {
+      if (!announcementSourceUrl) {
+        return;
+      }
+
+      const health = await window.studyTutor.checkProxyHealth(announcementSourceUrl);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (!health.ok) {
+        setAnnouncementError('公告服务暂不可用，应用会在后台重试连接。');
+        void window.studyTutor.connectAnnouncements('').catch(() => undefined);
+        scheduleRetry();
+        return;
+      }
+
+      setAnnouncementError('');
+
+      await window.studyTutor.connectAnnouncements(announcementSourceUrl).catch((caught) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setAnnouncementError(caught instanceof Error ? caught.message : String(caught));
+      });
+
+      const latestAnnouncementEvent = await window.studyTutor.getLatestAnnouncement(announcementSourceUrl);
+
+      if (!isMounted) {
+        return;
+      }
+
+      handleAnnouncementEvent(latestAnnouncementEvent);
+    }
 
     if (!announcementSourceUrl) {
       setAnnouncements([]);
@@ -722,40 +864,39 @@ export function App(): JSX.Element {
 
       return () => {
         isMounted = false;
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+        }
         unsubscribeAnnouncement();
       };
     }
 
-    void window.studyTutor.connectAnnouncements(announcementSourceUrl).catch((caught) => {
+    void connectWhenHealthy().catch((caught) => {
       if (!isMounted) {
         return;
       }
 
       setAnnouncementError(caught instanceof Error ? caught.message : String(caught));
+      scheduleRetry();
     });
-
-    void window.studyTutor
-      .getLatestAnnouncement(announcementSourceUrl)
-      .then((latestAnnouncementEvent) => {
-        if (!isMounted) {
-          return;
-        }
-
-        handleAnnouncementEvent(latestAnnouncementEvent);
-      })
-      .catch((caught) => {
-        if (!isMounted) {
-          return;
-        }
-
-        setAnnouncementError(caught instanceof Error ? caught.message : String(caught));
-      });
 
     return () => {
       isMounted = false;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
       unsubscribeAnnouncement();
     };
   }, [announcementSourceUrl, handleAnnouncementEvent]);
+
+  useEffect(() => {
+    if (!isSettingsOpen || !isProxyConnection || settingsView !== 'normal') {
+      proxyHealthRequestIdRef.current += 1;
+      return;
+    }
+
+    void validateProxyConnection();
+  }, [isProxyConnection, isSettingsOpen, settingsView, validateProxyConnection]);
 
   const absoluteRegion = useCallback(
     (localRegion: RegionBounds): RegionBounds => ({
@@ -796,7 +937,7 @@ export function App(): JSX.Element {
         const response = await window.studyTutor.explainRegion({
           requestId,
           region: absoluteRegion(targetRegion),
-          settings
+          settings: settingsWithEffectiveProxyUrl(settings)
         });
         const streamedTurnId = streamingAssistantTurnIdRef.current;
         const streamedText = streamingAnswerTextRef.current;
@@ -933,7 +1074,7 @@ export function App(): JSX.Element {
         requestId,
         sessionId: activeSessionId,
         question,
-        settings
+        settings: settingsWithEffectiveProxyUrl(settings)
       });
 
       const streamedTurnId = streamingAssistantTurnIdRef.current;
@@ -1104,12 +1245,13 @@ export function App(): JSX.Element {
         apiConnectionMode,
         providerId: '',
         model: '',
-        proxyUrl: apiConnectionMode === 'proxy' ? settings.proxyUrl || apiDefaults?.proxyUrl || '' : settings.proxyUrl
+        proxyUrl: settings.proxyUrl
       };
 
       setIsModelCustom(false);
       setModelOptions([]);
       setModelListError('');
+      setSettingsView((current) => (apiConnectionMode === 'proxy' ? current : 'normal'));
 
       if (apiConnectionMode === 'proxy') {
         setSettings(nextSettings);
@@ -1242,7 +1384,18 @@ export function App(): JSX.Element {
             >
               <Bell size={18} />
             </button>
-            <button className="icon-button" type="button" onClick={() => setIsSettingsOpen((open) => !open)} title="设置">
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => {
+                if (isSettingsOpen) {
+                  setSettingsView('normal');
+                }
+
+                setIsSettingsOpen((open) => !open);
+              }}
+              title="设置"
+            >
               <Settings size={18} />
             </button>
           </nav>
@@ -1409,11 +1562,87 @@ export function App(): JSX.Element {
           onPointerLeave={leaveInteractiveSurface}
         >
           <div className="panel-header">
-            <strong>设置</strong>
-            <button className="icon-button ghost" type="button" onClick={() => setIsSettingsOpen(false)} title="关闭">
+            <div className="settings-title-row">
+              <strong>{settingsView === 'proxyAdvanced' ? '高级设置' : '设置'}</strong>
+              {settingsView === 'normal' && isProxyConnection && (
+                <button
+                  className="secondary-button settings-advanced-button"
+                  type="button"
+                  onClick={() => {
+                    setProxyHealthStatus('idle');
+                    setProxyHealthMessage('');
+                    setSettingsView('proxyAdvanced');
+                  }}
+                >
+                  高级设置
+                </button>
+              )}
+              {settingsView === 'proxyAdvanced' && (
+                <button
+                  className="secondary-button settings-advanced-button"
+                  type="button"
+                  onClick={() => setSettingsView('normal')}
+                >
+                  返回普通设置
+                </button>
+              )}
+            </div>
+            <button
+              className="icon-button ghost"
+              type="button"
+              onClick={() => {
+                setSettingsView('normal');
+                setIsSettingsOpen(false);
+              }}
+              title="关闭"
+            >
               <X size={18} />
             </button>
           </div>
+          {settingsView === 'proxyAdvanced' ? (
+            <div className="proxy-advanced-page">
+              <label>
+                代理服务地址
+                <input
+                  value={settings.proxyUrl}
+                  onChange={(event) => {
+                    setSettings((current) => ({ ...current, proxyUrl: event.target.value }));
+                    setProxyHealthStatus('idle');
+                    setProxyHealthMessage('');
+                  }}
+                  placeholder="留空使用内置默认地址"
+                  spellCheck={false}
+                />
+              </label>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void validateProxyConnection()}
+                disabled={proxyHealthStatus === 'checking'}
+              >
+                {proxyHealthStatus === 'checking' ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+                {proxyHealthStatus === 'checking' ? '验证中...' : '验证是否连接成功'}
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setSettings((current) => ({ ...current, proxyUrl: '' }));
+                  setProxyHealthStatus('idle');
+                  setProxyHealthMessage('已恢复默认地址，请点击验证是否连接成功。');
+                }}
+                disabled={!settings.proxyUrl.trim()}
+              >
+                恢复默认地址
+              </button>
+              {proxyValidationText && (
+                <div className={`proxy-validation-result ${proxyHealthStatus === 'error' ? 'danger' : ''}`} aria-live="polite">
+                  {proxyValidationText}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
           <div className="update-box">
             <div>
               <strong>应用更新</strong>
@@ -1454,15 +1683,10 @@ export function App(): JSX.Element {
           </label>
           {isProxyConnection && (
             <>
-              <label>
-                远程服务地址
-                <input
-                  value={settings.proxyUrl}
-                  onChange={(event) => setSettings((current) => ({ ...current, proxyUrl: event.target.value }))}
-                  placeholder="http://127.0.0.1:8787"
-                  spellCheck={false}
-                />
-              </label>
+              <div className={`proxy-summary ${proxyHealthStatus === 'error' ? 'danger' : ''}`}>
+                <strong>代理服务地址</strong>
+                <span>{proxyHealthText}</span>
+              </div>
               <label>
                 代理访问 Token
                 <input
@@ -1501,61 +1725,21 @@ export function App(): JSX.Element {
                 </option>
               ))}
             </select>
-            <span className="model-status">
-              {selectedProvider
-                ? `当前使用 ${selectedProvider.name} · ${selectedProvider.baseUrl} · ${selectedProvider.apiMode}`
-                : isProxyConnection
-                  ? '请先连接代理服务并刷新 API 服务商。'
-                  : '使用下方手动填写的 API Base URL、API Key 和接口模式。'}
-            </span>
           </label>
           {!isProxyConnection && (
-            <>
-              <label>
-                API Base URL
-                <input
-                  value={settings.apiBaseUrl}
-                  onChange={(event) => setSettings((current) => ({ ...current, apiBaseUrl: event.target.value }))}
-                  placeholder="https://api.example.com/v1"
-                  disabled={Boolean(settings.providerId)}
-                  spellCheck={false}
-                />
-              </label>
-              <label>
-                API Key
-                <input
-                  type="password"
-                  value={settings.apiKey}
-                  onChange={(event) => setSettings((current) => ({ ...current, apiKey: event.target.value }))}
-                  placeholder="可留空使用 AI_API_KEY"
-                  autoComplete="off"
-                  disabled={Boolean(settings.providerId)}
-                  spellCheck={false}
-                />
-                <span className="model-status">
-                  {selectedProvider
-                    ? selectedProviderHasKey
-                      ? '已从当前 API 服务商配置加载 API Key，不会显示明文。'
-                      : '当前 API 服务商未配置 API Key。'
-                    : selectedProviderHasKey
-                      ? '已从配置文件加载 API Key，不会显示明文。'
-                      : '未检测到 AI_API_KEY。'}
-                </span>
-              </label>
-              <label>
-                接口模式
-                <select
-                  value={settings.apiMode}
-                  onChange={(event) =>
-                    setSettings((current) => ({ ...current, apiMode: event.target.value as ApiModeSetting }))
-                  }
-                >
-                  <option value="env">使用当前 API 配置</option>
-                  <option value="chat-completions">Chat Completions 兼容</option>
-                  <option value="responses">Responses 兼容</option>
-                </select>
-              </label>
-            </>
+            <label>
+              接口模式
+              <select
+                value={settings.apiMode}
+                onChange={(event) =>
+                  setSettings((current) => ({ ...current, apiMode: event.target.value as ApiModeSetting }))
+                }
+              >
+                <option value="env">使用当前 API 配置</option>
+                <option value="chat-completions">Chat Completions 兼容</option>
+                <option value="responses">Responses 兼容</option>
+              </select>
+            </label>
           )}
           <label>
             模型
@@ -1683,6 +1867,8 @@ export function App(): JSX.Element {
             />
             只讲思路
           </label>
+            </>
+          )}
         </aside>
       )}
     </main>

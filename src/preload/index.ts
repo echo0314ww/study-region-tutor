@@ -13,6 +13,7 @@ import type {
   FollowUpRequest,
   FollowUpResult,
   ModelListResult,
+  ProxyHealthResult,
   RegionBounds,
   TutorSettings,
   UpdateStatusEvent
@@ -38,6 +39,8 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.getLatestAnnouncement, sourceUrl),
   connectAnnouncements: (sourceUrl?: string): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.connectAnnouncements, sourceUrl),
+  checkProxyHealth: (sourceUrl?: string): Promise<ProxyHealthResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.checkProxyHealth, sourceUrl),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.getAppVersion),
   setDebugMode: (enabled: boolean): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setDebugMode, enabled),
   setMousePassthrough: (ignored: boolean): Promise<void> =>

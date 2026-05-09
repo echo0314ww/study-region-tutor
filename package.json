@@ -1,6 +1,6 @@
 {
   "name": "study-region-tutor",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A cross-platform desktop study assistant that explains selected screen regions.",
   "main": "out/main/index.js",
   "author": "",
@@ -16,6 +16,7 @@
     "build": "electron-vite build",
     "proxy:dev": "node server/proxy-server.mjs",
     "proxy:check": "node --check server/proxy-server.mjs",
+    "ngrok:dev": "node server/ngrok-dev.mjs",
     "dist": "npm run build && electron-builder --win nsis",
     "publish:win": "npm run build && electron-builder --win nsis --publish always"
   },
