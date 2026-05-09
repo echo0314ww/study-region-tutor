@@ -1,0 +1,38 @@
+name: Sync Release Notes
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to update, for example v0.4.0. Use all to update every release listed in RELEASE_NOTES.md.'
+        required: false
+        default: 'all'
+  push:
+    branches:
+      - main
+    paths:
+      - RELEASE_NOTES.md
+      - scripts/sync-release-notes.mjs
+      - .github/workflows/sync-release-notes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync-release-notes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Sync release notes
+        run: node scripts/sync-release-notes.mjs --tag "${{ github.event.inputs.tag || 'all' }}"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
