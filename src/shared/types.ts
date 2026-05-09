@@ -7,6 +7,7 @@ export type OcrLanguage = 'chi_sim' | 'eng';
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type ReasoningEffortSetting = ReasoningEffort | 'off';
 export type SessionRole = 'user' | 'assistant';
+export type AnnouncementLevel = 'info' | 'warning' | 'critical';
 
 export interface RegionBounds {
   x: number;
@@ -30,6 +31,22 @@ export interface TutorSettings {
   ocrLanguage: OcrLanguage;
   ocrMathMode: boolean;
   reasoningEffort: ReasoningEffortSetting;
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  level: AnnouncementLevel;
+  publishedAt: string;
+  popup: boolean;
+}
+
+export interface AnnouncementEvent {
+  announcement: Announcement | null;
+  announcements: Announcement[];
+  sourceUrl: string;
+  receivedAt: string;
 }
 
 export interface ApiProviderOption {

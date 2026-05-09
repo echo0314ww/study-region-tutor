@@ -5,6 +5,7 @@ import type { ProgressInfo, UpdateInfo } from 'electron-updater';
 import { join } from 'node:path';
 import { IPC_CHANNELS } from '../shared/ipc';
 import type {
+  AnnouncementEvent,
   ApiRuntimeDefaults,
   CancelRequest,
   EndQuestionSessionRequest,
@@ -37,6 +38,11 @@ import {
   toFollowUpContext,
   updateQuestionSessionResponseId
 } from './questionSessions';
+import {
+  connectAnnouncementStream,
+  fetchLatestAnnouncement,
+  stopAnnouncementStream
+} from './announcementClient';
 import { captureRegionAsDataUrl, setScreenshotDebugMode } from './screenshot';
 import {
   proxyAskFollowUp,
@@ -94,6 +100,7 @@ function createWindow(): void {
   isMousePassthroughEnabled = false;
 
   mainWindow.on('closed', () => {
+    stopAnnouncementStream();
     mainWindow = undefined;
     isMousePassthroughEnabled = false;
   });
@@ -353,6 +360,14 @@ function registerIpc(): void {
     if (latestUpdateStatus.status === 'downloaded') {
       autoUpdater.quitAndInstall(false, true);
     }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getLatestAnnouncement, (_event, sourceUrl?: string): Promise<AnnouncementEvent> => {
+    return fetchLatestAnnouncement(sourceUrl);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.connectAnnouncements, (event, sourceUrl?: string): void => {
+    connectAnnouncementStream(sourceUrl, event.sender);
   });
 
   ipcMain.handle(IPC_CHANNELS.listModels, (_event, settings: TutorSettings): Promise<ModelListResult> => {

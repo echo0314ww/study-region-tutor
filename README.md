@@ -112,19 +112,102 @@ npm run proxy:dev
 npm run proxy:check
 ```
 
+## 公告推送
+
+公告功能复用同一个本地代理服务，不需要额外启动新端口：
+
+```bash
+npm run proxy:dev
+```
+
+公告文件位于：
+
+```text
+announcements/current.json
+```
+
+推荐使用“公告池 + 可见公告 ID 列表”格式：
+
+```json
+{
+  "allAnnouncement": ["welcome-001", "welcome-005"],
+  "announcements": [
+    {
+      "id": "welcome-001",
+      "title": "系统公告",
+      "content": "第一条公告内容。",
+      "level": "info",
+      "publishedAt": "2026-05-09T20:00:00+08:00",
+      "popup": false
+    },
+    {
+      "id": "welcome-005",
+      "title": "重要公告",
+      "content": "第五条公告内容。",
+      "level": "warning",
+      "publishedAt": "2026-05-09T20:00:00+08:00",
+      "popup": true
+    }
+  ]
+}
+```
+
+`announcements` 是公告池，`allAnnouncement` 是当前要显示的公告 ID 列表。应用只会显示 `allAnnouncement` 中列出的公告，并按该数组顺序排列。也兼容 `visibleAnnouncementIds` 和 `"all announcement"` 字段名；如果缺少这些字段，则显示 `announcements` 中的全部公告。
+
+旧版单条公告格式仍然可用：
+
+```json
+{
+  "id": "welcome-001",
+  "title": "系统公告",
+  "content": "单条公告内容。",
+  "level": "info",
+  "publishedAt": "2026-05-09T20:00:00+08:00",
+  "popup": false
+}
+```
+
+保存 `announcements/current.json` 后，已连接到该代理地址的应用会通过 SSE 实时收到公告。公告接口是公开接口，不需要 `TUTOR_PROXY_TOKEN`；API 代理接口仍然需要 Token。
+
+公开接口：
+
+```text
+GET /health
+GET /announcements/latest
+GET /announcements/stream
+```
+
+需要 Token 的接口：
+
+```text
+GET /providers
+POST /models
+POST /explain/stream
+POST /follow-up/stream
+```
+
+用户只要能访问你的代理地址，例如：
+
+```text
+http://你的电脑局域网IP:8787
+```
+
+就可以收到公告；如果还要使用你提供的 API 代理能力，才需要继续填写 `TUTOR_PROXY_TOKEN`。公告内容不要写 API Key、Token、账号密码或其他私密信息。
+
 ## 开发运行
 
 ```bash
 npm run dev
 ```
 
-启动后会出现一个半透明覆盖窗口，包含：
+启动后默认只显示顶部工具栏，不会立刻展开截图框或结果面板。工具栏包含：
 
-- 可拖拽、可缩放的识别区域
-- “识别并讲解”按钮
-- 识别中或追问中的“停止”按钮
-- 结果面板
-- 设置面板
+- `截图`：显示或隐藏可拖拽、可缩放的识别区域
+- `识别并讲解`：在截图框显示后可用，点击后只截取当前框选区域
+- `停止`：识别中或追问中可用，用于取消当前请求
+- `对话`：显示或隐藏结果/追问面板
+- `公告`：显示公告面板
+- `设置`：显示设置面板
 
 ## 本题追问
 

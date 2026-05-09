@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc';
 import type {
+  AnnouncementEvent,
   AnswerDeltaEvent,
   ApiRuntimeDefaults,
   ApiProviderOption,
@@ -33,6 +34,10 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.listModels, settings),
   checkForUpdates: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
   installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
+  getLatestAnnouncement: (sourceUrl?: string): Promise<AnnouncementEvent> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getLatestAnnouncement, sourceUrl),
+  connectAnnouncements: (sourceUrl?: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.connectAnnouncements, sourceUrl),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.getAppVersion),
   setDebugMode: (enabled: boolean): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setDebugMode, enabled),
   setMousePassthrough: (ignored: boolean): Promise<void> =>
@@ -41,6 +46,11 @@ const api = {
     const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatusEvent): void => callback(status);
     ipcRenderer.on(IPC_CHANNELS.updateStatus, listener);
     return () => ipcRenderer.off(IPC_CHANNELS.updateStatus, listener);
+  },
+  onAnnouncement: (callback: (event: AnnouncementEvent) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, announcement: AnnouncementEvent): void => callback(announcement);
+    ipcRenderer.on(IPC_CHANNELS.announcement, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.announcement, listener);
   },
   onExplainProgress: (callback: (progress: ExplainProgressEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: ExplainProgressEvent): void => callback(progress);

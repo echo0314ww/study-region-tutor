@@ -1,7 +1,9 @@
-import { AlertCircle, BookOpen, Check, Loader2, PanelRight, RefreshCw, Settings, X } from 'lucide-react';
+import { AlertCircle, Bell, BookOpen, Check, Loader2, MessageSquareText, RefreshCw, ScanLine, Settings, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type {
+  Announcement,
+  AnnouncementEvent,
   ApiConnectionMode,
   ApiModeSetting,
   ApiProviderOption,
@@ -78,7 +80,7 @@ const DEFAULT_SETTINGS: TutorSettings = {
   inputMode: 'image',
   ocrLanguage: 'chi_sim',
   ocrMathMode: true,
-  reasoningEffort: 'high'
+  reasoningEffort: 'low'
 };
 
 function settingsWithApiDefaults(defaults: ApiRuntimeDefaults): TutorSettings {
@@ -94,6 +96,22 @@ function settingsWithApiDefaults(defaults: ApiRuntimeDefaults): TutorSettings {
 
 const MODEL_PLACEHOLDER_VALUE = '__select_model__';
 const CUSTOM_MODEL_VALUE = '__custom_model__';
+const READ_ANNOUNCEMENTS_KEY = 'study-region-tutor-read-announcements';
+
+function loadReadAnnouncementIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(READ_ANNOUNCEMENTS_KEY);
+    const ids = raw ? (JSON.parse(raw) as unknown) : [];
+
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveReadAnnouncementIds(ids: Set<string>): void {
+  localStorage.setItem(READ_ANNOUNCEMENTS_KEY, JSON.stringify([...ids]));
+}
 
 function createRequestId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -243,9 +261,9 @@ export function App(): JSX.Element {
   const [overlayBounds, setOverlayBounds] = useState<RegionBounds>({ x: 0, y: 0, width: 0, height: 0 });
   const [settings, setSettings] = useState<TutorSettings>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isResultOpen, setIsResultOpen] = useState(true);
+  const [isResultOpen, setIsResultOpen] = useState(false);
   const [isCaptureUiVisible, setIsCaptureUiVisible] = useState(true);
-  const [isSelectionVisible, setIsSelectionVisible] = useState(true);
+  const [isSelectionVisible, setIsSelectionVisible] = useState(false);
   const [result, setResult] = useState('');
   const [activeSessionId, setActiveSessionId] = useState('');
   const [conversationTurns, setConversationTurns] = useState<UiConversationTurn[]>([]);
@@ -266,6 +284,10 @@ export function App(): JSX.Element {
     status: 'idle',
     message: '尚未检查更新。'
   });
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementError, setAnnouncementError] = useState('');
+  const [isAnnouncementOpen, setIsAnnouncementOpen] = useState(false);
+  const [readAnnouncementIds, setReadAnnouncementIds] = useState<Set<string>>(() => loadReadAnnouncementIds());
   const dragRef = useRef<DragState | null>(null);
   const resultPanelDragRef = useRef<PanelDragState | null>(null);
   const lastRequestRef = useRef<RegionBounds | null>(null);
@@ -278,10 +300,15 @@ export function App(): JSX.Element {
   const isModelCustomRef = useRef(false);
   const lastPointerPositionRef = useRef<{ x: number; y: number } | null>(null);
   const isMousePassthroughRef = useRef(false);
+  const readAnnouncementIdsRef = useRef(readAnnouncementIds);
 
   useEffect(() => {
     isModelCustomRef.current = isModelCustom;
   }, [isModelCustom]);
+
+  useEffect(() => {
+    readAnnouncementIdsRef.current = readAnnouncementIds;
+  }, [readAnnouncementIds]);
 
   const floatingPassthroughMode = isCaptureUiVisible && !isSelectionVisible;
 
@@ -309,6 +336,18 @@ export function App(): JSX.Element {
     [floatingPassthroughMode, setMousePassthrough]
   );
 
+  const enterInteractiveSurface = useCallback((): void => {
+    setMousePassthrough(false);
+  }, [setMousePassthrough]);
+
+  const leaveInteractiveSurface = useCallback((): void => {
+    if (!floatingPassthroughMode || dragRef.current || resultPanelDragRef.current) {
+      return;
+    }
+
+    setMousePassthrough(true);
+  }, [floatingPassthroughMode, setMousePassthrough]);
+
   useEffect(() => {
     if (!floatingPassthroughMode) {
       setMousePassthrough(false);
@@ -325,6 +364,7 @@ export function App(): JSX.Element {
     updateMousePassthrough(lastPosition.x, lastPosition.y);
   }, [
     floatingPassthroughMode,
+    isAnnouncementOpen,
     isResultOpen,
     isSettingsOpen,
     resultPanel.height,
@@ -458,6 +498,74 @@ export function App(): JSX.Element {
   ]
     .filter(Boolean)
     .join(' · ');
+  const announcementSourceUrl = useMemo(
+    () => settings.proxyUrl.trim() || apiDefaults?.proxyUrl || '',
+    [apiDefaults?.proxyUrl, settings.proxyUrl]
+  );
+  const hasUnreadAnnouncement = announcements.some((item) => !readAnnouncementIds.has(item.id));
+  const announcementPanelLevel = announcements.some((item) => item.level === 'critical')
+    ? 'critical'
+    : announcements.some((item) => item.level === 'warning')
+      ? 'warning'
+      : '';
+
+  const markAnnouncementsRead = useCallback((items: Announcement[]): void => {
+    setReadAnnouncementIds((current) => {
+      let changed = false;
+      const next = new Set(current);
+
+      for (const item of items) {
+        if (!next.has(item.id)) {
+          next.add(item.id);
+          changed = true;
+        }
+      }
+
+      if (!changed) {
+        return current;
+      }
+
+      saveReadAnnouncementIds(next);
+
+      return next;
+    });
+  }, []);
+
+  const handleAnnouncementEvent = useCallback(
+    (event: AnnouncementEvent): void => {
+      const nextAnnouncements =
+        Array.isArray(event.announcements) && event.announcements.length > 0
+          ? event.announcements
+          : event.announcement
+            ? [event.announcement]
+            : [];
+      const unreadPopupAnnouncements = nextAnnouncements.filter(
+        (item) => item.popup && !readAnnouncementIdsRef.current.has(item.id)
+      );
+
+      setAnnouncementError('');
+      setAnnouncements(nextAnnouncements);
+
+      if (unreadPopupAnnouncements.length > 0) {
+        setIsAnnouncementOpen(true);
+        markAnnouncementsRead(unreadPopupAnnouncements);
+      }
+    },
+    [markAnnouncementsRead]
+  );
+
+  const toggleAnnouncementPanel = useCallback((): void => {
+    setIsAnnouncementOpen((current) => {
+      const nextOpen = !current;
+
+      if (nextOpen) {
+        markAnnouncementsRead(announcements);
+      }
+
+      return nextOpen;
+    });
+  }, [announcements, markAnnouncementsRead]);
+
   const addProviderSwitchHint = useCallback(
     (message: string): string => {
       const provider = apiProviders.find((item) => item.id === settings.providerId);
@@ -598,6 +706,56 @@ export function App(): JSX.Element {
       unsubscribeAnswerDelta();
     };
   }, [appendAnswerDelta, loadModels, refreshApiProviders]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const unsubscribeAnnouncement = window.studyTutor.onAnnouncement((event) => {
+      if (isMounted) {
+        handleAnnouncementEvent(event);
+      }
+    });
+
+    if (!announcementSourceUrl) {
+      setAnnouncements([]);
+      setAnnouncementError('');
+      void window.studyTutor.connectAnnouncements('').catch(() => undefined);
+
+      return () => {
+        isMounted = false;
+        unsubscribeAnnouncement();
+      };
+    }
+
+    void window.studyTutor.connectAnnouncements(announcementSourceUrl).catch((caught) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setAnnouncementError(caught instanceof Error ? caught.message : String(caught));
+    });
+
+    void window.studyTutor
+      .getLatestAnnouncement(announcementSourceUrl)
+      .then((latestAnnouncementEvent) => {
+        if (!isMounted) {
+          return;
+        }
+
+        handleAnnouncementEvent(latestAnnouncementEvent);
+      })
+      .catch((caught) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setAnnouncementError(caught instanceof Error ? caught.message : String(caught));
+      });
+
+    return () => {
+      isMounted = false;
+      unsubscribeAnnouncement();
+    };
+  }, [announcementSourceUrl, handleAnnouncementEvent]);
 
   const absoluteRegion = useCallback(
     (localRegion: RegionBounds): RegionBounds => ({
@@ -1042,21 +1200,47 @@ export function App(): JSX.Element {
 
       {isCaptureUiVisible && (
         <>
-          <nav className="toolbar" aria-label="controls" data-interactive="true">
-            {(isSelectionVisible || isLoading) && (
-              <button className="primary-button" type="button" onClick={() => void runExplain()} disabled={isLoading}>
-                {isLoading ? <Loader2 size={18} className="spin" /> : <BookOpen size={18} />}
-                识别并讲解
-              </button>
-            )}
+          <nav
+            className="toolbar"
+            aria-label="controls"
+            data-interactive="true"
+            onPointerEnter={enterInteractiveSurface}
+            onPointerLeave={leaveInteractiveSurface}
+          >
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setIsSelectionVisible((visible) => !visible)}
+              disabled={isLoading}
+            >
+              <ScanLine size={18} />
+              {isSelectionVisible ? '隐藏截图' : '截图'}
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => void runExplain()}
+              disabled={isLoading || !isSelectionVisible}
+            >
+              {isLoading ? <Loader2 size={18} className="spin" /> : <BookOpen size={18} />}
+              {isLoading ? '识别中' : '识别并讲解'}
+            </button>
             {isLoading && (
               <button className="secondary-button" type="button" onClick={cancelCurrentRequest} disabled={isCancelling}>
                 <X size={18} />
                 {isCancelling ? '停止中' : '停止'}
               </button>
             )}
-            <button className="icon-button" type="button" onClick={() => setIsResultOpen((open) => !open)} title="结果">
-              <PanelRight size={18} />
+            <button className="icon-button" type="button" onClick={() => setIsResultOpen((open) => !open)} title="对话">
+              <MessageSquareText size={18} />
+            </button>
+            <button
+              className={`icon-button ${hasUnreadAnnouncement ? 'has-dot' : ''}`}
+              type="button"
+              onClick={toggleAnnouncementPanel}
+              title="公告"
+            >
+              <Bell size={18} />
             </button>
             <button className="icon-button" type="button" onClick={() => setIsSettingsOpen((open) => !open)} title="设置">
               <Settings size={18} />
@@ -1065,11 +1249,57 @@ export function App(): JSX.Element {
         </>
       )}
 
+      {isCaptureUiVisible && isAnnouncementOpen && (
+        <aside
+          className="announcement-panel"
+          aria-label="announcement"
+          data-interactive="true"
+          onPointerEnter={enterInteractiveSurface}
+          onPointerLeave={leaveInteractiveSurface}
+        >
+          <div className="panel-header">
+            <div className={`status announcement-status ${announcementPanelLevel}`}>
+              <Bell size={16} />
+              <span>公告</span>
+            </div>
+            <button
+              className="icon-button ghost"
+              type="button"
+              onClick={() => setIsAnnouncementOpen(false)}
+              title="关闭"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          {announcements.length > 0 ? (
+            <div className="announcement-list">
+              {announcements.map((item) => (
+                <section className="announcement-content" key={item.id}>
+                  <div className="announcement-meta">
+                    <strong>{item.title}</strong>
+                    <span>
+                      {item.level} · {item.publishedAt}
+                    </span>
+                  </div>
+                  <AnswerRenderer text={item.content} />
+                </section>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              {announcementError || (announcementSourceUrl ? '暂无公告' : '未配置远程服务地址')}
+            </div>
+          )}
+        </aside>
+      )}
+
       {isCaptureUiVisible && isResultOpen && (
         <aside
           data-interactive="true"
           className="result-panel"
           aria-label="result"
+          onPointerEnter={enterInteractiveSurface}
+          onPointerLeave={leaveInteractiveSurface}
           style={{
             left: resultPanel.x,
             top: resultPanel.y,
@@ -1171,7 +1401,13 @@ export function App(): JSX.Element {
       )}
 
       {isCaptureUiVisible && isSettingsOpen && (
-        <aside className="settings-panel" aria-label="settings" data-interactive="true">
+        <aside
+          className="settings-panel"
+          aria-label="settings"
+          data-interactive="true"
+          onPointerEnter={enterInteractiveSurface}
+          onPointerLeave={leaveInteractiveSurface}
+        >
           <div className="panel-header">
             <strong>设置</strong>
             <button className="icon-button ghost" type="button" onClick={() => setIsSettingsOpen(false)} title="关闭">
@@ -1212,14 +1448,14 @@ export function App(): JSX.Element {
             </select>
             <span className="model-status">
               {isProxyConnection
-                ? '通过本机/局域网代理服务转发请求，用户端不需要保存第三方 API Key。'
+                ? '通过本机/局域网代理服务接收公告；填写 Token 后可转发 API 请求，用户端不需要保存第三方 API Key。'
                 : '应用直接读取本机配置或设置面板里的第三方 API 配置。'}
             </span>
           </label>
           {isProxyConnection && (
             <>
               <label>
-                代理服务地址
+                远程服务地址
                 <input
                   value={settings.proxyUrl}
                   onChange={(event) => setSettings((current) => ({ ...current, proxyUrl: event.target.value }))}
@@ -1237,8 +1473,10 @@ export function App(): JSX.Element {
                   autoComplete="off"
                   spellCheck={false}
                 />
-                <span className={`model-status ${hasProxyToken ? '' : 'danger'}`}>
-                  {hasProxyToken ? '已检测到代理访问 Token。' : '未检测到代理访问 Token，请在这里填写或配置 TUTOR_PROXY_TOKEN。'}
+                <span className="model-status">
+                  {hasProxyToken
+                    ? '已检测到代理访问 Token，可使用 API 代理。'
+                    : '未填写 Token 时仍可接收公告；使用 API 代理需填写 TUTOR_PROXY_TOKEN。'}
                 </span>
               </label>
               <button

@@ -139,6 +139,7 @@ textarea {
 
 .toolbar {
   position: absolute;
+  z-index: 20;
   top: 22px;
   left: 50%;
   display: flex;
@@ -181,10 +182,23 @@ textarea {
 }
 
 .icon-button {
+  position: relative;
   width: 36px;
   padding: 0;
   background: #edf5f0;
   color: #17241d;
+}
+
+.icon-button.has-dot::after {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #edf5f0;
+  border-radius: 50%;
+  background: #d84a3a;
+  content: "";
 }
 
 .icon-button.ghost {
@@ -197,8 +211,10 @@ button:disabled {
 }
 
 .result-panel,
-.settings-panel {
+.settings-panel,
+.announcement-panel {
   position: absolute;
+  z-index: 10;
   border: 1px solid rgba(20, 31, 25, 0.12);
   border-radius: 8px;
   background: rgba(252, 255, 253, 0.94);
@@ -221,6 +237,15 @@ button:disabled {
   max-height: calc(100vh - 112px);
   overflow: auto;
   padding: 14px;
+}
+
+.announcement-panel {
+  top: 84px;
+  left: 50%;
+  width: min(460px, calc(100vw - 44px));
+  max-height: calc(100vh - 112px);
+  overflow: auto;
+  transform: translateX(-50%);
 }
 
 .panel-header {
@@ -274,6 +299,49 @@ button:disabled {
 
 .status.danger {
   color: #a43a36;
+}
+
+.announcement-status.warning {
+  color: #946200;
+}
+
+.announcement-status.critical {
+  color: #a43a36;
+}
+
+.announcement-content {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  user-select: text;
+}
+
+.announcement-list {
+  display: grid;
+  gap: 0;
+}
+
+.announcement-list .announcement-content {
+  border-bottom: 1px solid rgba(20, 31, 25, 0.08);
+}
+
+.announcement-list .announcement-content:last-child {
+  border-bottom: 0;
+}
+
+.announcement-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.announcement-meta span {
+  color: #607167;
+  font-size: 12px;
+}
+
+.announcement-content .answer-renderer {
+  padding: 0;
+  overflow: visible;
 }
 
 .result-text,

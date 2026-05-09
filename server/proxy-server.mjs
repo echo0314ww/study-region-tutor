@@ -1,13 +1,19 @@
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, watch } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { clearInterval, setInterval } from 'node:timers';
 
 const DEFAULT_PORT = 8787;
 const DEFAULT_MAX_BODY_MB = 12;
+const DEFAULT_ANNOUNCEMENT_FILE = 'announcements/current.json';
 const ENV_FILES = ['.env', '.env.local'];
 
 let activeConfig = loadConfigSafely();
 let reloadTimer;
+let activeAnnouncements = [];
+let announcementReloadTimer;
+let announcementWatcher;
+const announcementClients = new Set();
 
 function parseEnvValue(raw) {
   const value = raw.trim();
@@ -58,6 +64,16 @@ function readRuntimeEnv() {
 
 function parseApiMode(value) {
   return value === 'responses' ? 'responses' : 'chat-completions';
+}
+
+function parseBoolean(value, fallback = true) {
+  const normalized = String(value || '').trim().toLowerCase();
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  return !['0', 'false', 'no', 'off'].includes(normalized);
 }
 
 function normalizeProviderId(id) {
@@ -140,12 +156,15 @@ function loadConfig() {
   const defaultId = providers.some((provider) => provider.id === requestedDefault) ? requestedDefault : providers[0].id;
   const port = Number.parseInt(String(env.TUTOR_PROXY_PORT || DEFAULT_PORT), 10);
   const maxBodyMb = Number.parseInt(String(env.TUTOR_PROXY_MAX_BODY_MB || DEFAULT_MAX_BODY_MB), 10);
+  const announcementFile = String(env.ANNOUNCEMENT_FILE || DEFAULT_ANNOUNCEMENT_FILE).trim();
 
   return {
     loadedAt: new Date().toISOString(),
     token,
     port: Number.isFinite(port) && port > 0 ? port : DEFAULT_PORT,
     maxBodyBytes: (Number.isFinite(maxBodyMb) && maxBodyMb > 0 ? maxBodyMb : DEFAULT_MAX_BODY_MB) * 1024 * 1024,
+    announcementEnabled: parseBoolean(env.ANNOUNCEMENT_ENABLED, true),
+    announcementPath: resolve(process.cwd(), announcementFile || DEFAULT_ANNOUNCEMENT_FILE),
     providers: providers.map((provider) => ({
       ...provider,
       isDefault: provider.id === defaultId
@@ -174,6 +193,7 @@ function scheduleReload() {
   clearTimeout(reloadTimer);
   reloadTimer = setTimeout(() => {
     activeConfig = loadConfigSafely();
+    scheduleAnnouncementReload();
   }, 180);
 }
 
@@ -594,6 +614,223 @@ function startSse(res) {
   });
 }
 
+function normalizeAnnouncementLevel(value) {
+  return ['info', 'warning', 'critical'].includes(value) ? value : 'info';
+}
+
+function normalizeAnnouncement(raw) {
+  if (!isRecord(raw)) {
+    throw new Error('Announcement must be a JSON object.');
+  }
+
+  const id = String(raw.id || '').trim();
+  const title = String(raw.title || '').trim();
+  const content = String(raw.content || '').trim();
+
+  if (!id) {
+    throw new Error('Announcement id is required.');
+  }
+
+  if (!title) {
+    throw new Error('Announcement title is required.');
+  }
+
+  if (!content) {
+    throw new Error('Announcement content is required.');
+  }
+
+  return {
+    id,
+    title,
+    content,
+    level: normalizeAnnouncementLevel(String(raw.level || 'info').trim()),
+    publishedAt: String(raw.publishedAt || new Date().toISOString()).trim(),
+    popup: Boolean(raw.popup)
+  };
+}
+
+function visibleAnnouncementIds(raw) {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+
+  const value = raw.allAnnouncement ?? raw['all announcement'] ?? raw.visibleAnnouncementIds;
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((id) => String(id).trim()).filter(Boolean);
+  }
+
+  return String(value)
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+function uniqueInOrder(values) {
+  const seen = new Set();
+  const unique = [];
+
+  for (const value of values) {
+    if (seen.has(value)) {
+      continue;
+    }
+
+    seen.add(value);
+    unique.push(value);
+  }
+
+  return unique;
+}
+
+function normalizeAnnouncementFile(raw) {
+  if (!isRecord(raw)) {
+    throw new Error('Announcement file must contain a JSON object.');
+  }
+
+  // Backward compatibility: the old format was one announcement object.
+  if (typeof raw.id === 'string' && typeof raw.title === 'string' && typeof raw.content === 'string') {
+    return [normalizeAnnouncement(raw)];
+  }
+
+  if (!Array.isArray(raw.announcements)) {
+    throw new Error('Announcement file must contain an announcements array.');
+  }
+
+  const announcements = raw.announcements.map(normalizeAnnouncement);
+  const byId = new Map();
+
+  for (const announcement of announcements) {
+    if (!byId.has(announcement.id)) {
+      byId.set(announcement.id, announcement);
+    }
+  }
+
+  const visibleIds = visibleAnnouncementIds(raw);
+
+  if (visibleIds === undefined) {
+    return announcements;
+  }
+
+  return uniqueInOrder(visibleIds)
+    .map((id) => byId.get(id))
+    .filter(Boolean);
+}
+
+function readJsonFile(path) {
+  return JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, ''));
+}
+
+function announcementSignature() {
+  return JSON.stringify(activeAnnouncements);
+}
+
+function loadAnnouncementSafely() {
+  if (!activeConfig.announcementEnabled) {
+    activeAnnouncements = [];
+    return;
+  }
+
+  if (!existsSync(activeConfig.announcementPath)) {
+    activeAnnouncements = [];
+    console.log(`[proxy] announcement file not found: ${activeConfig.announcementPath}`);
+    return;
+  }
+
+  try {
+    const raw = readJsonFile(activeConfig.announcementPath);
+    activeAnnouncements = normalizeAnnouncementFile(raw);
+    console.log(`[proxy] loaded ${activeAnnouncements.length} announcement(s)`);
+  } catch (error) {
+    console.error(`[proxy] announcement load failed: ${errorMessage(error)}`);
+    console.error('[proxy] keeping the previous valid announcement list.');
+  }
+}
+
+function announcementPayload() {
+  return {
+    announcement: activeAnnouncements[0] || null,
+    announcements: activeAnnouncements,
+    sourceUrl: '',
+    receivedAt: new Date().toISOString()
+  };
+}
+
+function broadcastAnnouncement() {
+  const payload = {
+    type: 'announcement',
+    ...announcementPayload()
+  };
+
+  for (const client of announcementClients) {
+    sendEvent(client, payload);
+  }
+}
+
+function scheduleAnnouncementReload() {
+  clearTimeout(announcementReloadTimer);
+  announcementReloadTimer = setTimeout(() => {
+    const previousSignature = announcementSignature();
+    loadAnnouncementSafely();
+    resetAnnouncementWatcher();
+
+    if (previousSignature !== announcementSignature()) {
+      broadcastAnnouncement();
+    }
+  }, 180);
+}
+
+function resetAnnouncementWatcher() {
+  announcementWatcher?.close();
+  announcementWatcher = undefined;
+
+  if (!activeConfig.announcementEnabled) {
+    return;
+  }
+
+  const watchTarget = existsSync(activeConfig.announcementPath)
+    ? activeConfig.announcementPath
+    : dirname(activeConfig.announcementPath);
+
+  if (!existsSync(watchTarget)) {
+    return;
+  }
+
+  try {
+    announcementWatcher = watch(watchTarget, { persistent: false }, scheduleAnnouncementReload);
+  } catch (error) {
+    console.error(`[proxy] announcement watcher failed: ${errorMessage(error)}`);
+  }
+}
+
+function handleLatestAnnouncement(res) {
+  sendJson(res, 200, {
+    ok: true,
+    data: announcementPayload()
+  });
+}
+
+function handleAnnouncementStream(req, res) {
+  startSse(res);
+  announcementClients.add(res);
+  sendEvent(res, {
+    type: 'announcement',
+    ...announcementPayload()
+  });
+
+  const heartbeat = setInterval(() => {
+    sendEvent(res, { type: 'ping', at: new Date().toISOString() });
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    announcementClients.delete(res);
+  });
+}
+
 function isAuthorized(req) {
   const header = req.headers.authorization || '';
   const expected = `Bearer ${activeConfig.token}`;
@@ -920,9 +1157,22 @@ async function route(req, res) {
       data: {
         status: 'ok',
         loadedAt: activeConfig.loadedAt,
-        providerCount: activeConfig.providers.length
+        providerCount: activeConfig.providers.length,
+        announcementEnabled: activeConfig.announcementEnabled,
+        announcementCount: activeAnnouncements.length,
+        hasAnnouncement: activeAnnouncements.length > 0
       }
     });
+    return;
+  }
+
+  if (url.pathname === '/announcements/latest' && req.method === 'GET') {
+    handleLatestAnnouncement(res);
+    return;
+  }
+
+  if (url.pathname === '/announcements/stream' && req.method === 'GET') {
+    handleAnnouncementStream(req, res);
     return;
   }
 
@@ -978,7 +1228,10 @@ const server = createServer((req, res) => {
   });
 });
 
+loadAnnouncementSafely();
+resetAnnouncementWatcher();
+
 server.listen(activeConfig.port, '0.0.0.0', () => {
   console.log(`[proxy] listening on http://0.0.0.0:${activeConfig.port}`);
-  console.log('[proxy] use GET /health to check status; business APIs require Authorization: Bearer <TUTOR_PROXY_TOKEN>');
+  console.log('[proxy] use GET /health to check status; announcements are public; API proxy endpoints require Authorization: Bearer <TUTOR_PROXY_TOKEN>');
 });
