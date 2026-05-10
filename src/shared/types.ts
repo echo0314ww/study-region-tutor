@@ -7,8 +7,6 @@ export type OcrLanguage = 'chi_sim' | 'eng';
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type ReasoningEffortSetting = ReasoningEffort | 'off';
 export type SessionRole = 'user' | 'assistant';
-export type AnnouncementLevel = 'info' | 'warning' | 'critical';
-
 export interface RegionBounds {
   x: number;
   y: number;
@@ -37,14 +35,14 @@ export interface Announcement {
   id: string;
   title: string;
   content: string;
-  level: AnnouncementLevel;
+  level: string;
   publishedAt: string;
-  popup: boolean;
 }
 
 export interface AnnouncementEvent {
   announcement: Announcement | null;
   announcements: Announcement[];
+  revision: string;
   sourceUrl: string;
   receivedAt: string;
 }

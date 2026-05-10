@@ -52,6 +52,7 @@ import {
   proxyListApiProviders,
   proxyListAvailableModels
 } from './proxyClient';
+import { clearSavedProxyToken, hasSavedProxyToken, saveProxyToken } from './proxyTokenStore';
 
 const { autoUpdater } = electronUpdater;
 
@@ -73,6 +74,15 @@ function currentVirtualBounds(): RegionBounds {
       bounds: display.bounds
     }))
   );
+}
+
+function runtimeApiDefaults(): ApiRuntimeDefaults {
+  const defaults = getRuntimeApiDefaults();
+
+  return {
+    ...defaults,
+    hasProxyToken: defaults.hasProxyToken || hasSavedProxyToken()
+  };
 }
 
 function createWindow(): void {
@@ -135,8 +145,8 @@ function updateVersion(info: UpdateInfo): string | undefined {
 }
 
 function registerAutoUpdater(): void {
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on('checking-for-update', () => {
     emitUpdateStatus({
@@ -148,7 +158,7 @@ function registerAutoUpdater(): void {
   autoUpdater.on('update-available', (info) => {
     emitUpdateStatus({
       status: 'available',
-      message: '发现新版本，正在后台下载更新包。',
+      message: '发现新版本。点击“立即更新”后才会下载更新包。',
       version: updateVersion(info)
     });
   });
@@ -181,7 +191,7 @@ function registerAutoUpdater(): void {
   autoUpdater.on('error', (error) => {
     emitUpdateStatus({
       status: 'error',
-      message: `更新检查失败：${errorMessage(error)}`
+      message: `更新流程失败：${errorMessage(error)}`
     });
   });
 }
@@ -204,6 +214,41 @@ async function checkForUpdates(): Promise<void> {
   }
 
   await autoUpdater.checkForUpdates();
+}
+
+async function downloadUpdate(): Promise<void> {
+  if (process.platform !== 'win32') {
+    emitUpdateStatus({
+      status: 'error',
+      message: '当前只配置了 Windows 版本自动更新。'
+    });
+    return;
+  }
+
+  if (is.dev) {
+    emitUpdateStatus({
+      status: 'not-available',
+      message: '开发模式不会下载更新包；请在打包后的 Windows 应用中测试。'
+    });
+    return;
+  }
+
+  if (latestUpdateStatus.status !== 'available') {
+    emitUpdateStatus({
+      status: 'error',
+      message: '当前没有可下载的新版本，请先检查更新。'
+    });
+    return;
+  }
+
+  emitUpdateStatus({
+    status: 'downloading',
+    message: '正在下载更新：0%。',
+    version: latestUpdateStatus.version,
+    percent: 0
+  });
+
+  await autoUpdater.downloadUpdate();
 }
 
 function errorMessage(error: unknown): string {
@@ -335,7 +380,7 @@ function explainTextRequest(
 }
 
 function registerIpc(): void {
-  ipcMain.handle(IPC_CHANNELS.getApiDefaults, (): ApiRuntimeDefaults => getRuntimeApiDefaults());
+  ipcMain.handle(IPC_CHANNELS.getApiDefaults, (): ApiRuntimeDefaults => runtimeApiDefaults());
 
   ipcMain.handle(IPC_CHANNELS.listApiProviders, (_event, settings?: TutorSettings) =>
     settings && isProxyMode(settings) ? proxyListApiProviders(settings) : listApiProviders()
@@ -344,6 +389,25 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getOverlayBounds, () => currentVirtualBounds());
 
   ipcMain.handle(IPC_CHANNELS.getAppVersion, () => app.getVersion());
+
+  ipcMain.handle(IPC_CHANNELS.quitApp, (): void => {
+    stopAnnouncementStream();
+    for (const controller of activeRequestControllers.values()) {
+      controller.abort();
+    }
+    activeRequestControllers.clear();
+    app.quit();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.saveProxyToken, (_event, token: string): ApiRuntimeDefaults => {
+    saveProxyToken(token);
+    return runtimeApiDefaults();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.clearProxyToken, (): ApiRuntimeDefaults => {
+    clearSavedProxyToken();
+    return runtimeApiDefaults();
+  });
 
   ipcMain.handle(IPC_CHANNELS.setDebugMode, (_event, enabled: boolean) => {
     setScreenshotDebugMode(Boolean(enabled));
@@ -355,6 +419,10 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC_CHANNELS.checkForUpdates, async (): Promise<void> => {
     await checkForUpdates();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.downloadUpdate, async (): Promise<void> => {
+    await downloadUpdate();
   });
 
   ipcMain.handle(IPC_CHANNELS.installUpdate, (): void => {
@@ -586,7 +654,7 @@ app.whenReady().then(() => {
       void checkForUpdates().catch((error) => {
         emitUpdateStatus({
           status: 'error',
-          message: `更新检查失败：${errorMessage(error)}`
+          message: `更新流程失败：${errorMessage(error)}`
         });
       });
     }, 3000);

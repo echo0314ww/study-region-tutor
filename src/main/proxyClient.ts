@@ -14,8 +14,10 @@ import {
   buildTutorTextPrompt,
   buildTutorUserPrompt
 } from './prompts';
+import { clearSavedProxyToken, getSavedProxyToken } from './proxyTokenStore';
 
 type AnswerDeltaHandler = (text: string) => void;
+type ProxyTokenSource = 'settings' | 'env' | 'saved';
 
 interface ProxyEnvelope<T> {
   ok: boolean;
@@ -29,6 +31,15 @@ interface ProxyStreamEvent {
   message?: string;
   answer?: ModelAnswer;
 }
+
+interface ProxyTokenSelection {
+  token: string;
+  source: ProxyTokenSource;
+}
+
+const SAVED_PROXY_TOKEN_INVALID_MESSAGE = '代理访问 Token 已失效，请重新填写最新的 TUTOR_PROXY_TOKEN。';
+const ENTERED_PROXY_TOKEN_INVALID_MESSAGE = '代理访问 Token 验证失败，请检查后重新填写。';
+const ENV_PROXY_TOKEN_INVALID_MESSAGE = '环境变量 TUTOR_PROXY_TOKEN 验证失败，请检查当前启动环境。';
 
 function proxyBaseUrl(settings: TutorSettings): string {
   const baseUrl = (settings.proxyUrl.trim() || process.env.TUTOR_PROXY_URL?.trim() || '').replace(/\/+$/, '');
@@ -46,14 +57,53 @@ function proxyBaseUrl(settings: TutorSettings): string {
   return baseUrl;
 }
 
-function proxyToken(settings: TutorSettings): string {
-  const token = settings.proxyToken.trim() || process.env.TUTOR_PROXY_TOKEN?.trim() || '';
+function proxyToken(settings: TutorSettings): ProxyTokenSelection {
+  const settingsToken = settings.proxyToken.trim();
 
-  if (!token) {
+  if (settingsToken) {
+    return { token: settingsToken, source: 'settings' };
+  }
+
+  const envToken = process.env.TUTOR_PROXY_TOKEN?.trim();
+
+  if (envToken) {
+    return { token: envToken, source: 'env' };
+  }
+
+  const savedToken = getSavedProxyToken();
+
+  if (savedToken) {
+    return { token: savedToken, source: 'saved' };
+  }
+
+  throw new Error('请在设置中填写代理服务访问 Token。');
+}
+
+function handleUnauthorizedProxyResponse(selection: ProxyTokenSelection): never {
+  if (selection.source === 'saved') {
+    clearSavedProxyToken();
+    throw new Error(SAVED_PROXY_TOKEN_INVALID_MESSAGE);
+  }
+
+  if (selection.source === 'env') {
+    throw new Error(ENV_PROXY_TOKEN_INVALID_MESSAGE);
+  }
+
+  throw new Error(ENTERED_PROXY_TOKEN_INVALID_MESSAGE);
+}
+
+function isUnauthorizedProxyResponse(response: Response): boolean {
+  return response.status === 401 || response.status === 403;
+}
+
+function requireProxyToken(settings: TutorSettings): ProxyTokenSelection {
+  const selection = proxyToken(settings);
+
+  if (!selection.token) {
     throw new Error('请在设置中填写代理服务访问 Token。');
   }
 
-  return token;
+  return selection;
 }
 
 function providerId(settings: TutorSettings): string {
@@ -71,10 +121,11 @@ function reasoningEffort(settings: TutorSettings): ReasoningEffort | undefined {
 }
 
 async function proxyJson<T>(settings: TutorSettings, path: string, body?: unknown): Promise<T> {
+  const tokenSelection = requireProxyToken(settings);
   const response = await fetch(`${proxyBaseUrl(settings)}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
-      Authorization: `Bearer ${proxyToken(settings)}`,
+      Authorization: `Bearer ${tokenSelection.token}`,
       Accept: 'application/json',
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
     },
@@ -82,6 +133,10 @@ async function proxyJson<T>(settings: TutorSettings, path: string, body?: unknow
   });
   const text = await response.text();
   let data: ProxyEnvelope<T> | undefined;
+
+  if (isUnauthorizedProxyResponse(response)) {
+    handleUnauthorizedProxyResponse(tokenSelection);
+  }
 
   try {
     data = text ? (JSON.parse(text) as ProxyEnvelope<T>) : undefined;
@@ -162,17 +217,22 @@ async function proxyStream(
   onDelta: AnswerDeltaHandler | undefined
 ): Promise<ModelAnswer> {
   throwIfAborted(signal);
+  const tokenSelection = requireProxyToken(settings);
 
   const response = await fetch(`${proxyBaseUrl(settings)}${path}`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${proxyToken(settings)}`,
+      Authorization: `Bearer ${tokenSelection.token}`,
       Accept: 'text/event-stream',
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(body),
     signal
   });
+
+  if (isUnauthorizedProxyResponse(response)) {
+    handleUnauthorizedProxyResponse(tokenSelection);
+  }
 
   if (!response.ok) {
     const text = await response.text();

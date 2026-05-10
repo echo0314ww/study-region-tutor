@@ -5,17 +5,15 @@
       "id": "welcome-001",
       "title": "嘿嘿",
       "content": "只可用chatgpt模型，选择chatgpt5.5就行",
-      "level": "",
-      "publishedAt": "2026-05-09",
-      "popup": false
+      "level": " ",
+      "publishedAt": "2026-05-09"
     },
     {
       "id": "welcome-002",
       "title": "个人公告",
       "content": "这是一条备用公告。把 welcome-002 加入 allAnnouncement 后，用户公告栏才会显示它。",
       "level": "info",
-      "publishedAt": "2026-05-09T20:00:00+08:00",
-      "popup": false
+      "publishedAt": "2026-05-09T20:00:00+08:00"
     }
   ]
 }

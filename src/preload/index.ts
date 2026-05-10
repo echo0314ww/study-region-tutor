@@ -34,6 +34,7 @@ const api = {
   listModels: (settings: TutorSettings): Promise<ModelListResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.listModels, settings),
   checkForUpdates: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
+  downloadUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate),
   installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
   getLatestAnnouncement: (sourceUrl?: string): Promise<AnnouncementEvent> =>
     ipcRenderer.invoke(IPC_CHANNELS.getLatestAnnouncement, sourceUrl),
@@ -42,6 +43,10 @@ const api = {
   checkProxyHealth: (sourceUrl?: string): Promise<ProxyHealthResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.checkProxyHealth, sourceUrl),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.getAppVersion),
+  quitApp: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.quitApp),
+  saveProxyToken: (token: string): Promise<ApiRuntimeDefaults> =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveProxyToken, token),
+  clearProxyToken: (): Promise<ApiRuntimeDefaults> => ipcRenderer.invoke(IPC_CHANNELS.clearProxyToken),
   setDebugMode: (enabled: boolean): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setDebugMode, enabled),
   setMousePassthrough: (ignored: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setMousePassthrough, ignored),

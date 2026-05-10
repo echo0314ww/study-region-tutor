@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -6,6 +7,7 @@ import { clearInterval, setInterval } from 'node:timers';
 
 const DEFAULT_PORT = 8787;
 const DEFAULT_MAX_BODY_MB = 12;
+const DEFAULT_RELEASE_ANNOUNCEMENT_FILE = 'announcements/releases.json';
 const DEFAULT_ANNOUNCEMENT_FILE = 'announcements/current.json';
 const ENV_FILES = ['.env', '.env.local'];
 
@@ -13,7 +15,7 @@ let activeConfig = loadConfigSafely();
 let reloadTimer;
 let activeAnnouncements = [];
 let announcementReloadTimer;
-let announcementWatcher;
+let announcementWatchers = [];
 let lastServiceUrlSignature = '';
 const announcementClients = new Set();
 
@@ -213,7 +215,13 @@ function loadConfig() {
   const port = Number.parseInt(String(env.TUTOR_PROXY_PORT || DEFAULT_PORT), 10);
   const maxBodyMb = Number.parseInt(String(env.TUTOR_PROXY_MAX_BODY_MB || DEFAULT_MAX_BODY_MB), 10);
   const announcementFile = String(env.ANNOUNCEMENT_FILE || DEFAULT_ANNOUNCEMENT_FILE).trim();
+  const releaseAnnouncementFile = String(
+    env.ANNOUNCEMENT_RELEASE_FILE || DEFAULT_RELEASE_ANNOUNCEMENT_FILE
+  ).trim();
   const publicProxyUrl = normalizeOptionalUrl(env.TUTOR_PUBLIC_PROXY_URL, 'TUTOR_PUBLIC_PROXY_URL');
+  const announcementPaths = uniqueInOrder([releaseAnnouncementFile, announcementFile].filter(Boolean)).map((file) =>
+    resolve(process.cwd(), file)
+  );
 
   return {
     loadedAt: new Date().toISOString(),
@@ -222,7 +230,7 @@ function loadConfig() {
     maxBodyBytes: (Number.isFinite(maxBodyMb) && maxBodyMb > 0 ? maxBodyMb : DEFAULT_MAX_BODY_MB) * 1024 * 1024,
     publicProxyUrl,
     announcementEnabled: parseBoolean(env.ANNOUNCEMENT_ENABLED, true),
-    announcementPath: resolve(process.cwd(), announcementFile || DEFAULT_ANNOUNCEMENT_FILE),
+    announcementPaths,
     providers: providers.map((provider) => ({
       ...provider,
       isDefault: provider.id === defaultId
@@ -676,7 +684,11 @@ function startSse(res) {
 }
 
 function normalizeAnnouncementLevel(value) {
-  return ['info', 'warning', 'critical'].includes(value) ? value : 'info';
+  if (value === undefined || value === null) {
+    return '';
+  }
+
+  return String(value).trim();
 }
 
 function normalizeAnnouncement(raw) {
@@ -704,9 +716,8 @@ function normalizeAnnouncement(raw) {
     id,
     title,
     content,
-    level: normalizeAnnouncementLevel(String(raw.level || 'info').trim()),
-    publishedAt: String(raw.publishedAt || new Date().toISOString()).trim(),
-    popup: Boolean(raw.popup)
+    level: normalizeAnnouncementLevel(raw.level),
+    publishedAt: String(raw.publishedAt || new Date().toISOString()).trim()
   };
 }
 
@@ -786,7 +797,7 @@ function readJsonFile(path) {
 }
 
 function announcementSignature() {
-  return JSON.stringify(activeAnnouncements);
+  return createHash('sha256').update(JSON.stringify(activeAnnouncements)).digest('hex');
 }
 
 function loadAnnouncementSafely() {
@@ -795,16 +806,31 @@ function loadAnnouncementSafely() {
     return;
   }
 
-  if (!existsSync(activeConfig.announcementPath)) {
-    activeAnnouncements = [];
-    console.log(`[proxy] announcement file not found: ${activeConfig.announcementPath}`);
-    return;
-  }
-
   try {
-    const raw = readJsonFile(activeConfig.announcementPath);
-    activeAnnouncements = normalizeAnnouncementFile(raw);
-    console.log(`[proxy] loaded ${activeAnnouncements.length} announcement(s)`);
+    const nextAnnouncements = [];
+
+    for (const announcementPath of activeConfig.announcementPaths) {
+      if (!existsSync(announcementPath)) {
+        console.log(`[proxy] announcement file not found: ${announcementPath}`);
+        continue;
+      }
+
+      const raw = readJsonFile(announcementPath);
+      nextAnnouncements.push(...normalizeAnnouncementFile(raw));
+    }
+
+    const byId = new Map();
+
+    for (const announcement of nextAnnouncements) {
+      if (!byId.has(announcement.id)) {
+        byId.set(announcement.id, announcement);
+      }
+    }
+
+    activeAnnouncements = [...byId.values()];
+    console.log(
+      `[proxy] loaded ${activeAnnouncements.length} announcement(s) from ${activeConfig.announcementPaths.length} file(s)`
+    );
   } catch (error) {
     console.error(`[proxy] announcement load failed: ${errorMessage(error)}`);
     console.error('[proxy] keeping the previous valid announcement list.');
@@ -812,9 +838,12 @@ function loadAnnouncementSafely() {
 }
 
 function announcementPayload() {
+  const revision = announcementSignature();
+
   return {
     announcement: activeAnnouncements[0] || null,
     announcements: activeAnnouncements,
+    revision,
     sourceUrl: '',
     receivedAt: new Date().toISOString()
   };
@@ -845,25 +874,32 @@ function scheduleAnnouncementReload() {
 }
 
 function resetAnnouncementWatcher() {
-  announcementWatcher?.close();
-  announcementWatcher = undefined;
+  for (const watcher of announcementWatchers) {
+    watcher.close();
+  }
+
+  announcementWatchers = [];
 
   if (!activeConfig.announcementEnabled) {
     return;
   }
 
-  const watchTarget = existsSync(activeConfig.announcementPath)
-    ? activeConfig.announcementPath
-    : dirname(activeConfig.announcementPath);
+  const watchTargets = uniqueInOrder(
+    activeConfig.announcementPaths.map((announcementPath) =>
+      existsSync(announcementPath) ? announcementPath : dirname(announcementPath)
+    )
+  );
 
-  if (!existsSync(watchTarget)) {
-    return;
-  }
+  for (const watchTarget of watchTargets) {
+    if (!existsSync(watchTarget)) {
+      continue;
+    }
 
-  try {
-    announcementWatcher = watch(watchTarget, { persistent: false }, scheduleAnnouncementReload);
-  } catch (error) {
-    console.error(`[proxy] announcement watcher failed: ${errorMessage(error)}`);
+    try {
+      announcementWatchers.push(watch(watchTarget, { persistent: false }, scheduleAnnouncementReload));
+    } catch (error) {
+      console.error(`[proxy] announcement watcher failed: ${errorMessage(error)}`);
+    }
   }
 }
 

@@ -38,6 +38,21 @@ AI_API_KEY=你的第三方 API Key
 npm install
 ```
 
+## Windows PowerShell 中文文档显示
+
+项目文档使用 UTF-8 编码。Windows PowerShell 直接 `Get-Content README.md` 时，如果终端编码不是 UTF-8，中文可能显示为乱码。可以使用项目提供的辅助脚本读取：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 README.md
+```
+
+也可以在当前 PowerShell 会话中临时指定 UTF-8 后再读取：
+
+```powershell
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Get-Content README.md -Encoding UTF8
+```
+
 ## 配置第三方 API
 
 第三方 API 的 Base URL 和 API Key 从 `.env.local`、`.env` 或环境变量读取，不在设置面板中明文填写。设置面板里可以选择：
@@ -114,8 +129,12 @@ npm run proxy:dev
 1. 确保和你的电脑在同一个局域网。
 2. 在设置面板把“API 连接模式”切换为“代理服务”。
 3. 普通设置中只显示代理服务地址连接状态，不展示远程地址输入框；内置默认公网代理地址可用时会提示“默认代理服务地址连接成功”。
-4. “代理访问 Token”填写你在 `.env.local` 中设置的 `TUTOR_PROXY_TOKEN`。
+4. 首次使用 API 代理时，“代理访问 Token”填写你在 `.env.local` 中设置的 `TUTOR_PROXY_TOKEN`。
 5. 点击“刷新代理服务商”，选择 API 服务商和模型后使用。
+
+“刷新代理服务商”成功后，应用会把本次填写的代理访问 Token 保存在用户电脑本机，后续再次打开应用时可以留空使用已保存 Token。保存时会优先使用 Electron `safeStorage` 加密；如果系统不支持安全存储，则退回本机文件保存。
+
+如果你之后修改了代理服务端的 `TUTOR_PROXY_TOKEN`，用户电脑上保存的旧 Token 会在下次请求代理服务商、模型列表、讲解或追问时被服务端拒绝。应用会清除旧 Token，并提示重新填写最新的 `TUTOR_PROXY_TOKEN`。
 
 如果提示“默认代理服务地址连接失败，请到高级设置自行配置远程服务地址”，点击设置标题旁的“高级设置”进入独立调试视图。该视图只用于代理地址调试：填写代理服务地址、点击“验证是否连接成功”、必要时点击“恢复默认地址”。同一局域网填写 `http://你的电脑局域网IP:8787`，公网用户填写 ngrok 的 HTTPS 地址。验证成功后返回普通设置页，再刷新代理服务商并选择 API 服务。
 
@@ -150,11 +169,14 @@ npm run proxy:check
 npm run proxy:dev
 ```
 
-公告文件位于：
+公告文件分为两类：
 
 ```text
-announcements/current.json
+announcements/releases.json  # 版本更新公告
+announcements/current.json   # 私人公告
 ```
+
+`proxy:dev` 默认会先读取 `announcements/releases.json`，再读取 `announcements/current.json`，并把两个文件中可见的公告合并推送给客户端。版本更新公告会排在私人公告前面；如果两个文件里出现相同 `id`，会保留先读取到的版本公告。任意一个文件不存在时不会影响另一个文件发布。
 
 推荐使用“公告池 + 可见公告 ID 列表”格式：
 
@@ -167,22 +189,38 @@ announcements/current.json
       "title": "系统公告",
       "content": "第一条公告内容。",
       "level": "info",
-      "publishedAt": "2026-05-09T20:00:00+08:00",
-      "popup": false
+      "publishedAt": "2026-05-09T20:00:00+08:00"
     },
     {
       "id": "welcome-005",
       "title": "重要公告",
       "content": "第五条公告内容。",
       "level": "warning",
-      "publishedAt": "2026-05-09T20:00:00+08:00",
-      "popup": true
+      "publishedAt": "2026-05-09T20:00:00+08:00"
     }
   ]
 }
 ```
 
-`announcements` 是公告池，`allAnnouncement` 是当前要显示的公告 ID 列表。应用只会显示 `allAnnouncement` 中列出的公告，并按该数组顺序排列。也兼容 `visibleAnnouncementIds` 和 `"all announcement"` 字段名；如果缺少这些字段，则显示 `announcements` 中的全部公告。
+`announcements` 是公告池，`allAnnouncement` 是当前要显示的公告 ID 列表。应用只会显示各文件 `allAnnouncement` 中列出的公告，并按该数组顺序排列。也兼容 `visibleAnnouncementIds` 和 `"all announcement"` 字段名；如果缺少这些字段，则显示 `announcements` 中的全部公告。`level` 是可选的公告标签，可填写任意文本，也可以留空；留空时客户端只显示发布时间，不会自动兜底成其他内容。`warning` 和 `critical` 仍会触发公告面板的对应强调样式。
+
+版本更新公告推荐使用 `release-vX.Y.Z` 作为 ID，例如：
+
+```json
+{
+  "id": "release-v0.6.0",
+  "title": "v0.6.0 更新说明",
+  "content": "- 新增功能 A。\n- 优化体验 B。",
+  "level": "info",
+  "publishedAt": "2026-05-10T20:00:00+08:00"
+}
+```
+
+每次发版时，把新的版本公告追加到 `announcements/releases.json`，并把它的 ID 放到该文件 `allAnnouncement` 的第一位。当前 `announcements/releases.json` 已包含 v0.1.0 到 v1.0.0 的版本公告；`announcements/current.json` 保留给私人公告。
+
+客户端会把 `release-` 开头的版本更新公告默认折叠显示，只展示标题、级别和发布时间；用户点击该条公告后才展开具体更新内容。私人公告默认直接展示正文。
+
+公告不会自动弹出。代理服务会对当前合并后的可见公告内容生成 `revision` 哈希；客户端只在 `revision` 与本机已读记录不一致时显示公告按钮红点，用户打开公告面板后即把当前 `revision` 标记为已读。如果只是保存文件但内容完全没有变化，哈希不变，红点状态也不会变化。
 
 旧版单条公告格式仍然可用：
 
@@ -192,12 +230,11 @@ announcements/current.json
   "title": "系统公告",
   "content": "单条公告内容。",
   "level": "info",
-  "publishedAt": "2026-05-09T20:00:00+08:00",
-  "popup": false
+  "publishedAt": "2026-05-09T20:00:00+08:00"
 }
 ```
 
-保存 `announcements/current.json` 后，已连接到该代理地址的应用会通过 SSE 实时收到公告。公告接口是公开接口，不需要 `TUTOR_PROXY_TOKEN`；API 代理接口仍然需要 Token。
+保存 `announcements/releases.json` 或 `announcements/current.json` 后，已连接到该代理地址的应用会通过 SSE 实时收到合并后的公告。公告接口是公开接口，不需要 `TUTOR_PROXY_TOKEN`；API 代理接口仍然需要 Token。
 
 公开接口：
 
@@ -224,7 +261,7 @@ POST /follow-up/stream
 http://你的电脑局域网IP:8787
 ```
 
-就可以收到公告；如果还要使用你提供的 API 代理能力，才需要继续填写 `TUTOR_PROXY_TOKEN`。公告内容不要写 API Key、Token、账号密码或其他私密信息。
+就可以收到公告；如果还要使用你提供的 API 代理能力，首次使用时需要填写 `TUTOR_PROXY_TOKEN`，刷新代理服务商成功后会在本机记住。公告内容不要写 API Key、Token、账号密码或其他私密信息。
 
 ## 开发运行
 
@@ -240,6 +277,7 @@ npm run dev
 - `对话`：显示或隐藏结果/追问面板
 - `公告`：显示公告面板
 - `设置`：显示设置面板
+- `退出应用`：确认后退出应用
 
 ## 本题追问
 
@@ -285,6 +323,8 @@ npm run dist
 
 项目已接入 `electron-updater`，只面向 Windows 版本使用 GitHub Releases 自动更新。设置面板里可以手动“检查更新”；打包后的应用启动时也会自动检查一次。
 
+“检查更新”只负责确认 GitHub Releases 上是否有新版本，不会自动下载或安装。发现新版本后，按钮旁会出现“立即更新”；用户点击后才开始下载更新包。下载完成后会显示“重启安装”，再次确认后才会退出并安装更新。
+
 发布前先把 `package.json` 里的 GitHub 发布配置改成你的仓库：
 
 ```json
@@ -301,15 +341,18 @@ npm run dist
 首次发布：
 
 1. 把代码推送到 GitHub。
-2. 准备一个 GitHub token，并在当前终端设置为 `GH_TOKEN`。
-3. 修改 `package.json` 的 `version`，例如 `0.1.1`。
-4. 运行：
+2. 确认 `.github/workflows/release-windows.yml` 的 `permissions.contents` 为 `write`，工作流会使用仓库自带的 `GITHUB_TOKEN` 发布，不需要准备 Personal Access Token。
+3. 修改 `package.json` 的 `version`，例如 `1.0.0`。
+4. 提交并推送版本 tag：
 
 ```bash
-npm run publish:win
+git add .
+git commit -m "Release v1.0.0"
+git tag -a v1.0.0 -m "v1.0.0"
+git push origin main v1.0.0
 ```
 
-`electron-builder` 会生成 Windows 安装包和 `latest.yml`，并发布到 GitHub Releases。用户安装这个版本后，后续每次你提升版本号并重新运行 `npm run publish:win`，用户端就能检查并下载安装更新。
+GitHub Actions 会使用 `GITHUB_TOKEN` 调用 `npm run publish:win`，生成 Windows 安装包和 `latest.yml`，并发布到 GitHub Releases。用户安装这个版本后，后续每次你提升版本号并推送新 tag，用户端就能检查到更新；用户点击“立即更新”后才会下载更新包，下载完成后点击“重启安装”才会安装。
 
 后续更新发布：
 
@@ -318,8 +361,7 @@ git status
 git add .
 git commit -m "你的更新说明"
 npm version patch
-git push
-git push --tags
+git push origin main --follow-tags
 ```
 
 这些命令的作用：
@@ -328,8 +370,7 @@ git push --tags
 - `git add .`：把当前改动加入待提交列表；`.env.local`、`node_modules/`、`out/`、`release/` 会被 `.gitignore` 忽略。
 - `git commit -m "你的更新说明"`：把改动保存成一次 Git 提交。
 - `npm version patch`：自动把版本号加一位，例如 `0.1.0 -> 0.1.1`，并创建 `v0.1.1` tag。
-- `git push`：推送代码提交。
-- `git push --tags`：推送版本 tag，触发 GitHub Actions 自动构建并发布新版 Windows 安装包。
+- `git push origin main --follow-tags`：推送代码提交和本次版本 tag，触发 GitHub Actions 使用 `GITHUB_TOKEN` 自动构建并发布新版 Windows 安装包。
 
 如果是明显的新功能，可以把 `patch` 换成 `minor`，例如 `0.1.1 -> 0.2.0`：
 

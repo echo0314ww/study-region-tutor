@@ -1,4 +1,4 @@
-import { AlertCircle, Bell, BookOpen, Check, Loader2, MessageSquareText, RefreshCw, ScanLine, Settings, X } from 'lucide-react';
+import { AlertCircle, Bell, BookOpen, Check, ChevronDown, ChevronRight, Loader2, MessageSquareText, Power, RefreshCw, ScanLine, Settings, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type {
@@ -101,7 +101,8 @@ function settingsWithApiDefaults(defaults: ApiRuntimeDefaults): TutorSettings {
 
 const MODEL_PLACEHOLDER_VALUE = '__select_model__';
 const CUSTOM_MODEL_VALUE = '__custom_model__';
-const READ_ANNOUNCEMENTS_KEY = 'study-region-tutor-read-announcements';
+const READ_ANNOUNCEMENT_REVISION_KEY = 'study-region-tutor-read-announcement-revision';
+const PROXY_TOKEN_INVALID_MESSAGE = '代理访问 Token 已失效，请重新填写最新的 TUTOR_PROXY_TOKEN。';
 
 function effectiveProxyUrl(settings: TutorSettings): string {
   return settings.proxyUrl.trim() || BUILT_IN_PROXY_URL;
@@ -117,19 +118,24 @@ function settingsWithEffectiveProxyUrl(settings: TutorSettings): TutorSettings {
   return proxyUrl ? { ...settings, proxyUrl } : settings;
 }
 
-function loadReadAnnouncementIds(): Set<string> {
+function loadReadAnnouncementRevision(): string {
   try {
-    const raw = localStorage.getItem(READ_ANNOUNCEMENTS_KEY);
-    const ids = raw ? (JSON.parse(raw) as unknown) : [];
-
-    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+    return localStorage.getItem(READ_ANNOUNCEMENT_REVISION_KEY) || '';
   } catch {
-    return new Set();
+    return '';
   }
 }
 
-function saveReadAnnouncementIds(ids: Set<string>): void {
-  localStorage.setItem(READ_ANNOUNCEMENTS_KEY, JSON.stringify([...ids]));
+function saveReadAnnouncementRevision(revision: string): void {
+  localStorage.setItem(READ_ANNOUNCEMENT_REVISION_KEY, revision);
+}
+
+function isReleaseAnnouncement(announcement: Announcement): boolean {
+  return announcement.id.startsWith('release-');
+}
+
+function announcementMetaText(announcement: Announcement): string {
+  return announcement.level ? `${announcement.level} · ${announcement.publishedAt}` : announcement.publishedAt;
 }
 
 function createRequestId(): string {
@@ -146,6 +152,10 @@ function isCanceledError(error: unknown): boolean {
   }
 
   return error.name === 'AbortError' || error.message.includes('已停止当前识别/回答');
+}
+
+function isProxyTokenInvalidMessage(message: string): boolean {
+  return message.includes(PROXY_TOKEN_INVALID_MESSAGE);
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -307,9 +317,11 @@ export function App(): JSX.Element {
     message: '尚未检查更新。'
   });
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcementRevision, setAnnouncementRevision] = useState('');
   const [announcementError, setAnnouncementError] = useState('');
   const [isAnnouncementOpen, setIsAnnouncementOpen] = useState(false);
-  const [readAnnouncementIds, setReadAnnouncementIds] = useState<Set<string>>(() => loadReadAnnouncementIds());
+  const [expandedAnnouncementIds, setExpandedAnnouncementIds] = useState<Set<string>>(() => new Set());
+  const [readAnnouncementRevision, setReadAnnouncementRevision] = useState(() => loadReadAnnouncementRevision());
   const dragRef = useRef<DragState | null>(null);
   const resultPanelDragRef = useRef<PanelDragState | null>(null);
   const lastRequestRef = useRef<RegionBounds | null>(null);
@@ -323,15 +335,9 @@ export function App(): JSX.Element {
   const isModelCustomRef = useRef(false);
   const lastPointerPositionRef = useRef<{ x: number; y: number } | null>(null);
   const isMousePassthroughRef = useRef(false);
-  const readAnnouncementIdsRef = useRef(readAnnouncementIds);
-
   useEffect(() => {
     isModelCustomRef.current = isModelCustom;
   }, [isModelCustom]);
-
-  useEffect(() => {
-    readAnnouncementIdsRef.current = readAnnouncementIds;
-  }, [readAnnouncementIds]);
 
   const floatingPassthroughMode = isCaptureUiVisible && !isSelectionVisible;
 
@@ -342,6 +348,20 @@ export function App(): JSX.Element {
 
     isMousePassthroughRef.current = ignored;
     void window.studyTutor.setMousePassthrough(ignored).catch(() => undefined);
+  }, []);
+
+  const clearSavedProxyTokenState = useCallback((message = PROXY_TOKEN_INVALID_MESSAGE): void => {
+    setSettings((current) => ({ ...current, proxyToken: '' }));
+    setApiProviders([]);
+    setModelOptions([]);
+    setModelListError(message);
+
+    void window.studyTutor
+      .clearProxyToken()
+      .then((defaults) => setApiDefaults(defaults))
+      .catch(() => {
+        setApiDefaults((current) => (current ? { ...current, hasProxyToken: false } : current));
+      });
   }, []);
 
   const updateMousePassthrough = useCallback(
@@ -445,6 +465,12 @@ export function App(): JSX.Element {
       }
 
       const message = caught instanceof Error ? caught.message : String(caught);
+
+      if (isProxyTokenInvalidMessage(message)) {
+        clearSavedProxyTokenState(message);
+        return;
+      }
+
       setModelOptions([]);
       setModelListError(message || '模型列表获取失败，请检查第三方 API 配置。');
     } finally {
@@ -452,7 +478,7 @@ export function App(): JSX.Element {
         setIsModelListLoading(false);
       }
     }
-  }, []);
+  }, [clearSavedProxyTokenState]);
 
   const refreshApiProviders = useCallback(
     async (sourceSettings: TutorSettings): Promise<void> => {
@@ -460,11 +486,25 @@ export function App(): JSX.Element {
 
       try {
         const providers = await window.studyTutor.listApiProviders(settingsWithEffectiveProxyUrl(sourceSettings));
+        const enteredProxyToken = sourceSettings.proxyToken.trim();
+        let shouldClearEnteredProxyToken = false;
+
+        if (sourceSettings.apiConnectionMode === 'proxy' && enteredProxyToken) {
+          try {
+            const defaults = await window.studyTutor.saveProxyToken(enteredProxyToken);
+            setApiDefaults(defaults);
+            shouldClearEnteredProxyToken = true;
+          } catch {
+            shouldClearEnteredProxyToken = false;
+          }
+        }
+
         const currentProvider = providers.find((provider) => provider.id === sourceSettings.providerId);
         const defaultProvider = providers.find((provider) => provider.isDefault) || providers[0];
         const nextProvider = currentProvider || defaultProvider;
         const nextSettings: TutorSettings = {
           ...sourceSettings,
+          proxyToken: shouldClearEnteredProxyToken ? '' : sourceSettings.proxyToken,
           providerId: nextProvider?.id || '',
           model: '',
           apiBaseUrl:
@@ -487,12 +527,18 @@ export function App(): JSX.Element {
         }
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : String(caught);
+
+        if (isProxyTokenInvalidMessage(message)) {
+          clearSavedProxyTokenState(message);
+          return;
+        }
+
         setApiProviders([]);
         setModelOptions([]);
         setModelListError(message || 'API 服务商列表获取失败，请检查代理地址、Token 或本地 API 配置。');
       }
     },
-    [loadModels]
+    [clearSavedProxyTokenState, loadModels]
   );
 
   const modelIds = useMemo(() => new Set(modelOptions.map((model) => model.id)), [modelOptions]);
@@ -511,7 +557,10 @@ export function App(): JSX.Element {
   const currentProxyUrl = manualProxyUrl || BUILT_IN_PROXY_URL || apiDefaults?.proxyUrl || '';
   const isBuiltInProxyUrlActive = Boolean(!manualProxyUrl && BUILT_IN_PROXY_URL && currentProxyUrl === BUILT_IN_PROXY_URL);
   const hasProxyToken = Boolean(settings.proxyToken.trim()) || Boolean(apiDefaults?.hasProxyToken);
-  const isCheckingUpdate = updateStatus.status === 'checking' || updateStatus.status === 'downloading';
+  const isCheckingUpdate = updateStatus.status === 'checking';
+  const isDownloadingUpdate = updateStatus.status === 'downloading';
+  const isUpdateBusy = isCheckingUpdate || isDownloadingUpdate;
+  const canDownloadUpdate = updateStatus.status === 'available';
   const updateMessage = [
     appVersion ? `当前版本：${appVersion}` : '',
     updateStatus.version ? `最新版本：${updateStatus.version}` : '',
@@ -523,7 +572,9 @@ export function App(): JSX.Element {
     () => currentProxyUrl,
     [currentProxyUrl]
   );
-  const hasUnreadAnnouncement = announcements.some((item) => !readAnnouncementIds.has(item.id));
+  const hasUnreadAnnouncement = Boolean(
+    announcements.length > 0 && announcementRevision && announcementRevision !== readAnnouncementRevision
+  );
   const announcementPanelLevel = announcements.some((item) => item.level === 'critical')
     ? 'critical'
     : announcements.some((item) => item.level === 'warning')
@@ -547,83 +598,91 @@ export function App(): JSX.Element {
     if (proxyHealthStatus === 'error') {
       return isBuiltInProxyUrlActive
         ? '默认代理服务地址连接失败，请到高级设置自行配置远程服务地址。'
-        : `自定义代理服务地址连接失败：${proxyHealthMessage || '请检查高级设置。'}`;
+        : `代理服务地址连接失败，请检查地址是否正确，或向开发者申请正确代理服务地址。
+        失败原因：${proxyHealthMessage || '请检查高级设置。'}`;
     }
 
     return isBuiltInProxyUrlActive ? '默认代理服务地址待检测。' : '代理服务地址待检测。';
   }, [currentProxyUrl, isBuiltInProxyUrlActive, proxyHealthMessage, proxyHealthStatus]);
   const proxyValidationText = useMemo(() => {
+    const isUsingDefaultProxyUrl = !settings.proxyUrl.trim();
+
     if (proxyHealthStatus === 'checking') {
       return '正在验证代理服务地址...';
     }
 
     if (proxyHealthStatus === 'success') {
-      return '代理服务地址连接成功，可以返回普通设置选择 API 服务。';
+      return isUsingDefaultProxyUrl
+        ? '默认代理服务地址连接成功，可以返回普通设置选择 API 服务。'
+        : '代理服务地址连接成功，可以返回普通设置选择 API 服务。';
     }
 
     if (proxyHealthStatus === 'error') {
-      return `代理服务地址连接失败，请检查地址是否正确，或确认 proxy/ngrok 服务已启动。${proxyHealthMessage ? ` ${proxyHealthMessage}` : ''}`;
+      return isUsingDefaultProxyUrl
+        ? '默认代理服务地址连接失败，请检查地址是否正确，或向开发者申请正确代理服务地址。'
+        : `代理服务地址连接失败，请检查地址是否正确，或向开发者申请正确代理服务地址。${proxyHealthMessage ? ` ${proxyHealthMessage}` : ''}`;
     }
 
     return proxyHealthMessage;
-  }, [proxyHealthMessage, proxyHealthStatus]);
+  }, [proxyHealthMessage, proxyHealthStatus, settings.proxyUrl]);
 
-  const markAnnouncementsRead = useCallback((items: Announcement[]): void => {
-    setReadAnnouncementIds((current) => {
-      let changed = false;
-      const next = new Set(current);
+  const markAnnouncementRevisionRead = useCallback((revision: string): void => {
+    if (!revision) {
+      return;
+    }
 
-      for (const item of items) {
-        if (!next.has(item.id)) {
-          next.add(item.id);
-          changed = true;
-        }
-      }
-
-      if (!changed) {
-        return current;
-      }
-
-      saveReadAnnouncementIds(next);
-
-      return next;
-    });
+    saveReadAnnouncementRevision(revision);
+    setReadAnnouncementRevision(revision);
   }, []);
 
-  const handleAnnouncementEvent = useCallback(
-    (event: AnnouncementEvent): void => {
-      const nextAnnouncements =
-        Array.isArray(event.announcements) && event.announcements.length > 0
-          ? event.announcements
-          : event.announcement
-            ? [event.announcement]
-            : [];
-      const unreadPopupAnnouncements = nextAnnouncements.filter(
-        (item) => item.popup && !readAnnouncementIdsRef.current.has(item.id)
-      );
+  const handleAnnouncementEvent = useCallback((event: AnnouncementEvent): void => {
+    const nextAnnouncements =
+      Array.isArray(event.announcements) && event.announcements.length > 0
+        ? event.announcements
+        : event.announcement
+          ? [event.announcement]
+          : [];
 
-      setAnnouncementError('');
-      setAnnouncements(nextAnnouncements);
-
-      if (unreadPopupAnnouncements.length > 0) {
-        setIsAnnouncementOpen(true);
-        markAnnouncementsRead(unreadPopupAnnouncements);
-      }
-    },
-    [markAnnouncementsRead]
-  );
+    setAnnouncementError('');
+    setAnnouncements(nextAnnouncements);
+    setAnnouncementRevision(event.revision || '');
+  }, []);
 
   const toggleAnnouncementPanel = useCallback((): void => {
     setIsAnnouncementOpen((current) => {
       const nextOpen = !current;
 
       if (nextOpen) {
-        markAnnouncementsRead(announcements);
+        markAnnouncementRevisionRead(announcementRevision);
+      } else {
+        setExpandedAnnouncementIds(new Set());
       }
 
       return nextOpen;
     });
-  }, [announcements, markAnnouncementsRead]);
+  }, [announcementRevision, markAnnouncementRevisionRead]);
+
+  useEffect(() => {
+    if (!isAnnouncementOpen || !announcementRevision || announcementRevision === readAnnouncementRevision) {
+      return;
+    }
+
+    markAnnouncementRevisionRead(announcementRevision);
+  }, [announcementRevision, isAnnouncementOpen, markAnnouncementRevisionRead, readAnnouncementRevision]);
+
+  const toggleAnnouncementDetails = useCallback((announcementId: string): void => {
+    setExpandedAnnouncementIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(announcementId)) {
+        next.delete(announcementId);
+      } else {
+        next.add(announcementId);
+      }
+
+      return next;
+    });
+  }, []);
 
   const addProviderSwitchHint = useCallback(
     (message: string): string => {
@@ -979,6 +1038,9 @@ export function App(): JSX.Element {
         }
 
         const message = caught instanceof Error ? caught.message : String(caught);
+        if (isProxyTokenInvalidMessage(message)) {
+          clearSavedProxyTokenState(message);
+        }
         const fallbackMessage = addProviderSwitchHint(message || '识别失败，请稍后重试。');
         const visibleMessage =
           latestProgressTextRef.current && !fallbackMessage.includes('## 处理过程')
@@ -996,7 +1058,7 @@ export function App(): JSX.Element {
         setIsCancelling(false);
       }
     },
-    [absoluteRegion, activeSessionId, addProviderSwitchHint, region, settings]
+    [absoluteRegion, activeSessionId, addProviderSwitchHint, clearSavedProxyTokenState, region, settings]
   );
 
   const retry = useCallback(() => {
@@ -1118,6 +1180,9 @@ export function App(): JSX.Element {
       }
 
       const message = caught instanceof Error ? caught.message : String(caught);
+      if (isProxyTokenInvalidMessage(message)) {
+        clearSavedProxyTokenState(message);
+      }
       const fallbackMessage = addProviderSwitchHint(message || '追问失败，请稍后重试。');
       const visibleMessage =
         latestProgressTextRef.current && !fallbackMessage.includes('## 处理过程')
@@ -1137,7 +1202,7 @@ export function App(): JSX.Element {
       setIsLoading(false);
       setIsCancelling(false);
     }
-  }, [activeSessionId, addProviderSwitchHint, followUpText, isLoading, settings]);
+  }, [activeSessionId, addProviderSwitchHint, clearSavedProxyTokenState, followUpText, isLoading, settings]);
 
   const cancelCurrentRequest = useCallback((): void => {
     const requestId = activeRequestIdRef.current;
@@ -1297,6 +1362,14 @@ export function App(): JSX.Element {
     [apiProviders, loadModels, settings]
   );
 
+  const quitApp = useCallback((): void => {
+    if (!window.confirm('确定要退出应用吗？')) {
+      return;
+    }
+
+    void window.studyTutor.quitApp();
+  }, []);
+
   return (
     <main
       className="app-shell"
@@ -1398,6 +1471,9 @@ export function App(): JSX.Element {
             >
               <Settings size={18} />
             </button>
+            <button className="icon-button" type="button" onClick={quitApp} title="退出应用">
+              <Power size={18} />
+            </button>
           </nav>
         </>
       )}
@@ -1413,12 +1489,15 @@ export function App(): JSX.Element {
           <div className="panel-header">
             <div className={`status announcement-status ${announcementPanelLevel}`}>
               <Bell size={16} />
-              <span>公告</span>
+              <span>公告(如有红点提醒，不妨看看公告内容有什么变化)</span>
             </div>
             <button
               className="icon-button ghost"
               type="button"
-              onClick={() => setIsAnnouncementOpen(false)}
+              onClick={() => {
+                setIsAnnouncementOpen(false);
+                setExpandedAnnouncementIds(new Set());
+              }}
               title="关闭"
             >
               <X size={18} />
@@ -1426,17 +1505,49 @@ export function App(): JSX.Element {
           </div>
           {announcements.length > 0 ? (
             <div className="announcement-list">
-              {announcements.map((item) => (
-                <section className="announcement-content" key={item.id}>
-                  <div className="announcement-meta">
-                    <strong>{item.title}</strong>
-                    <span>
-                      {item.level} · {item.publishedAt}
-                    </span>
-                  </div>
-                  <AnswerRenderer text={item.content} />
-                </section>
-              ))}
+              {announcements.map((item) => {
+                const releaseAnnouncement = isReleaseAnnouncement(item);
+                const isExpanded = expandedAnnouncementIds.has(item.id);
+                const contentId = `announcement-content-${item.id}`;
+
+                return (
+                  <section
+                    className={`announcement-content ${releaseAnnouncement ? 'release-announcement' : ''}`}
+                    key={item.id}
+                  >
+                    {releaseAnnouncement ? (
+                      <>
+                        <button
+                          className="announcement-toggle-header"
+                          type="button"
+                          onClick={() => toggleAnnouncementDetails(item.id)}
+                          aria-expanded={isExpanded}
+                          aria-controls={contentId}
+                        >
+                          <span className="announcement-meta">
+                            <strong>{item.title}</strong>
+                            <span>{announcementMetaText(item)}</span>
+                          </span>
+                          {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                        </button>
+                        {isExpanded && (
+                          <div className="announcement-detail" id={contentId}>
+                            <AnswerRenderer text={item.content} />
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="announcement-meta">
+                          <strong>{item.title}</strong>
+                          <span>{announcementMetaText(item)}</span>
+                        </div>
+                        <AnswerRenderer text={item.content} />
+                      </>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           ) : (
             <div className="empty-state">
@@ -1610,7 +1721,7 @@ export function App(): JSX.Element {
                     setProxyHealthStatus('idle');
                     setProxyHealthMessage('');
                   }}
-                  placeholder="留空使用内置默认地址"
+                  placeholder="留空使用默认代理服务地址"
                   spellCheck={false}
                 />
               </label>
@@ -1653,11 +1764,22 @@ export function App(): JSX.Element {
                 className="secondary-button"
                 type="button"
                 onClick={() => void window.studyTutor.checkForUpdates()}
-                disabled={isCheckingUpdate}
+                disabled={isUpdateBusy}
               >
                 {isCheckingUpdate ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
                 检查更新
               </button>
+              {(canDownloadUpdate || isDownloadingUpdate) && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => void window.studyTutor.downloadUpdate()}
+                  disabled={!canDownloadUpdate || isDownloadingUpdate}
+                >
+                  {isDownloadingUpdate ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+                  {isDownloadingUpdate ? '下载中' : '立即更新'}
+                </button>
+              )}
               {updateStatus.status === 'downloaded' && (
                 <button className="secondary-button" type="button" onClick={() => void window.studyTutor.installUpdate()}>
                   <Check size={16} />
@@ -1693,14 +1815,16 @@ export function App(): JSX.Element {
                   type="password"
                   value={settings.proxyToken}
                   onChange={(event) => setSettings((current) => ({ ...current, proxyToken: event.target.value }))}
-                  placeholder="可留空使用 TUTOR_PROXY_TOKEN"
+                  placeholder="首次填写后会记住；留空使用已保存 Token"
                   autoComplete="off"
                   spellCheck={false}
                 />
                 <span className="model-status">
-                  {hasProxyToken
-                    ? '已检测到代理访问 Token，可使用 API 代理。'
-                    : '未填写 Token 时仍可接收公告；使用 API 代理需填写 TUTOR_PROXY_TOKEN。'}
+                  {settings.proxyToken.trim()
+                    ? '将使用当前输入的 Token；刷新代理服务商成功后会保存到本机。'
+                    : hasProxyToken
+                      ? '已保存代理访问 Token，可直接使用 API 代理。'
+                      : '未填写 Token 时仍可接收公告；使用 API 代理需填写 TUTOR_PROXY_TOKEN。'}
                 </span>
               </label>
               <button

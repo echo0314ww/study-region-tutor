@@ -351,6 +351,43 @@ button:disabled {
   font-size: 12px;
 }
 
+.release-announcement {
+  gap: 0;
+  padding: 0;
+}
+
+.announcement-toggle-header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.announcement-toggle-header:hover {
+  background: rgba(29, 95, 63, 0.06);
+}
+
+.announcement-toggle-header .announcement-meta {
+  min-width: 0;
+}
+
+.announcement-toggle-header svg {
+  flex: 0 0 auto;
+  color: #506157;
+}
+
+.announcement-detail {
+  padding: 0 14px 14px;
+}
+
 .announcement-content .answer-renderer {
   padding: 0;
   overflow: visible;

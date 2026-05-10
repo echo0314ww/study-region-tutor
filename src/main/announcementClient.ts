@@ -64,6 +64,7 @@ function normalizeAnnouncementEvent(event: Partial<AnnouncementEvent> | undefine
   return {
     announcement: event?.announcement || announcements[0] || null,
     announcements,
+    revision: event?.revision || '',
     sourceUrl: event?.sourceUrl || baseUrl,
     receivedAt: event?.receivedAt || new Date().toISOString()
   };
