@@ -52,6 +52,8 @@ interface ApiConnectionConfig {
   providerName?: string;
 }
 
+const LOCAL_ENV_HINT = '用户配置目录的 .env.local';
+
 class ThirdPartyApiError extends Error {
   constructor(
     public readonly status: number,
@@ -118,7 +120,7 @@ function resolveApiConnectionConfig(settings: TutorSettings): ApiConnectionConfi
     requireThirdPartyBaseUrl(provider.baseUrl);
 
     if (!provider.apiKey) {
-      throw new Error(`API 服务商「${provider.name}」没有配置 API Key。请检查 .env.local 中该服务商的 API Key。`);
+      throw new Error(`API 服务商「${provider.name}」没有配置 API Key。请检查${LOCAL_ENV_HINT}中该服务商的 API Key。`);
     }
 
     return {
@@ -134,13 +136,13 @@ function resolveApiConnectionConfig(settings: TutorSettings): ApiConnectionConfi
   const baseUrl = settings.apiBaseUrl.trim() || process.env.AI_BASE_URL || '';
 
   if (!baseUrl) {
-    throw new Error('请在设置中填写第三方 API Base URL，或设置环境变量 AI_BASE_URL。');
+    throw new Error(`请在${LOCAL_ENV_HINT}中设置 AI_BASE_URL，或设置环境变量 AI_BASE_URL。`);
   }
 
   requireThirdPartyBaseUrl(baseUrl);
 
   if (!apiKey) {
-    throw new Error('请在设置中填写第三方 API Key，或设置环境变量 AI_API_KEY。');
+    throw new Error(`请在${LOCAL_ENV_HINT}中设置 AI_API_KEY，或设置环境变量 AI_API_KEY。`);
   }
 
   return {

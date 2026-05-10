@@ -55,7 +55,20 @@ Get-Content README.md -Encoding UTF8
 
 ## 配置第三方 API
 
-第三方 API 的 Base URL 和 API Key 从 `.env.local`、`.env` 或环境变量读取，不在设置面板中明文填写。设置面板里可以选择：
+第三方 API 的 Base URL 和 API Key 从用户配置目录里的 `.env.local`、`.env` 或环境变量读取，不在设置面板中明文填写。Windows 打包应用固定读取：
+
+```text
+%APPDATA%\study-region-tutor\.env.local
+%APPDATA%\study-region-tutor\.env
+```
+
+通常展开后类似：
+
+```text
+C:\Users\你的用户名\AppData\Roaming\study-region-tutor\.env.local
+```
+
+设置面板里可以选择：
 
 - API 服务商
 - 接口模式：默认选 `使用当前 API 配置`
@@ -87,8 +100,10 @@ export AI_API_KEY="你的第三方 API Key"
 
 如果设置面板里填写了同名配置，会优先使用设置面板的值。
 
-项目也会读取工作目录下的 `.env.local` 和 `.env`，其中 `.env.local` 已在 `.gitignore` 中，不会提交到仓库。
+开发运行时，项目会优先读取项目根目录下的 `.env.local` 和 `.env`，再读取用户配置目录中的同名文件；打包后的应用只读取用户配置目录。环境变量优先级最高，会覆盖这些配置文件中的同名字段。项目根目录的 `.env.local` 已在 `.gitignore` 中，不会提交到仓库。
 应用启动时只会把配置文件里的 Base URL 和接口模式落实到运行时设置里；API Key 只在主进程里使用，设置面板只显示是否已配置，不会回填或展示明文。
+
+如果选择“本地直连”但本机配置缺失或模型列表刷新失败，设置页会隐藏后续 API 服务商、接口模式、模型和 OCR 等设置，只保留应用更新、API 连接模式和本地直连配置指引。按指引补好 `%APPDATA%\study-region-tutor\.env.local` 后，需要重启应用再使用本地直连。
 
 ## 本机局域网代理模式
 
@@ -216,7 +231,7 @@ announcements/current.json   # 私人公告
 }
 ```
 
-每次发版时，把新的版本公告追加到 `announcements/releases.json`，并把它的 ID 放到该文件 `allAnnouncement` 的第一位。当前 `announcements/releases.json` 已包含 v0.1.0 到 v1.0.0 的版本公告；`announcements/current.json` 保留给私人公告。
+每次发版时，把新的版本公告追加到 `announcements/releases.json`，并把它的 ID 放到该文件 `allAnnouncement` 的第一位。当前 `announcements/releases.json` 已包含 v0.1.0 到 v1.0.1 的版本公告；`announcements/current.json` 保留给私人公告。
 
 客户端会把 `release-` 开头的版本更新公告默认折叠显示，只展示标题、级别和发布时间；用户点击该条公告后才展开具体更新内容。私人公告默认直接展示正文。
 
@@ -390,7 +405,7 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-bu
 
 当前 Windows 打包配置关闭了 `signAndEditExecutable`，这样普通权限也能生成安装包。这个版本不会带代码签名证书，Windows 可能显示未知发布者；正式公开分发前建议购买/配置代码签名证书，再恢复 exe 编辑和签名流程。
 
-不要把 `.env.local`、第三方 API Key 或 GitHub token 打包给别人。别人使用时应在设置面板填写自己的第三方 API 配置，或者你另行搭建后端代理服务。
+不要把 `.env.local`、第三方 API Key 或 GitHub token 打包给别人。别人使用本地直连时，应在自己电脑的 `%APPDATA%\study-region-tutor\.env.local` 中填写第三方 API 配置；普通用户更建议使用你另行搭建的代理服务。
 
 ## macOS 屏幕录制权限
 
@@ -429,7 +444,7 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-bu
 坐标采用 Electron 的 DIP 坐标在渲染进程和主进程间传递；主进程会根据当前显示器的 `scaleFactor` 换算为物理像素，再裁剪 `desktopCapturer` 返回的屏幕缩略图。多显示器场景下，会优先选择识别框中心所在显示器；如果中心点不在任何显示器内，则选择与识别框重叠面积最大的显示器。
 ## 多第三方 API 配置
 
-可以在 `.env.local` 中配置多个第三方 API，并用 `AI_DEFAULT_PROVIDER` 指定默认服务商：
+可以在用户配置目录的 `.env.local` 中配置多个第三方 API，并用 `AI_DEFAULT_PROVIDER` 指定默认服务商：
 
 ```text
 AI_PROVIDERS=tcdmx,xieapi

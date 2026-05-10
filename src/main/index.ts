@@ -19,7 +19,7 @@ import type {
   UpdateStatusEvent
 } from '../shared/types';
 import { getVirtualBounds } from './geometry';
-import { loadLocalEnv } from './env';
+import { loadLocalEnv, userConfigEnvDir } from './env';
 import { abortableDelay, isOperationCanceled, throwIfAborted } from './cancel';
 import type { ModelAnswer } from './openaiClient';
 import {
@@ -64,8 +64,6 @@ let latestUpdateStatus: UpdateStatusEvent = {
   message: '尚未检查更新。'
 };
 
-loadLocalEnv();
-
 function currentVirtualBounds(): RegionBounds {
   return getVirtualBounds(
     screen.getAllDisplays().map((display) => ({
@@ -74,6 +72,13 @@ function currentVirtualBounds(): RegionBounds {
       bounds: display.bounds
     }))
   );
+}
+
+function loadAppEnv(): void {
+  loadLocalEnv({
+    userConfigDir: userConfigEnvDir(app.getPath('appData')),
+    includeWorkingDirectory: is.dev
+  });
 }
 
 function runtimeApiDefaults(): ApiRuntimeDefaults {
@@ -645,6 +650,7 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  loadAppEnv();
   registerIpc();
   registerAutoUpdater();
   createWindow();

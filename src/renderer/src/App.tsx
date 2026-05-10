@@ -118,6 +118,33 @@ function settingsWithEffectiveProxyUrl(settings: TutorSettings): TutorSettings {
   return proxyUrl ? { ...settings, proxyUrl } : settings;
 }
 
+function hasDirectApiConfig(defaults: ApiRuntimeDefaults | null): boolean {
+  if (!defaults) {
+    return false;
+  }
+
+  return (
+    defaults.providers.some((provider) => provider.baseUrl.trim() && provider.hasApiKey) ||
+    Boolean(defaults.apiBaseUrl.trim() && defaults.hasApiKey)
+  );
+}
+
+function hasSelectedDirectApiConfig(defaults: ApiRuntimeDefaults | null, providerId: string): boolean {
+  if (!defaults) {
+    return false;
+  }
+
+  const selectedProvider = providerId
+    ? defaults.providers.find((provider) => provider.id === providerId)
+    : defaults.providers.find((provider) => provider.isDefault) || defaults.providers[0];
+
+  if (selectedProvider) {
+    return Boolean(selectedProvider.baseUrl.trim() && selectedProvider.hasApiKey);
+  }
+
+  return Boolean(defaults.apiBaseUrl.trim() && defaults.hasApiKey);
+}
+
 function loadReadAnnouncementRevision(): string {
   try {
     return localStorage.getItem(READ_ANNOUNCEMENT_REVISION_KEY) || '';
@@ -553,6 +580,9 @@ export function App(): JSX.Element {
     ? '正在获取模型列表...'
     : modelListError || (modelOptions.length > 0 ? `已加载 ${modelOptions.length} 个模型` : '尚未加载模型列表');
   const isProxyConnection = settings.apiConnectionMode === 'proxy';
+  const isDirectSetupUnavailable = Boolean(
+    !isProxyConnection && (modelListError || (apiDefaults && !hasDirectApiConfig(apiDefaults)))
+  );
   const manualProxyUrl = settings.proxyUrl.trim();
   const currentProxyUrl = manualProxyUrl || BUILT_IN_PROXY_URL || apiDefaults?.proxyUrl || '';
   const isBuiltInProxyUrlActive = Boolean(!manualProxyUrl && BUILT_IN_PROXY_URL && currentProxyUrl === BUILT_IN_PROXY_URL);
@@ -803,6 +833,9 @@ export function App(): JSX.Element {
         }
 
         setApiProviders(defaults.providers);
+        if (!hasSelectedDirectApiConfig(defaults, sourceSettings.providerId)) {
+          return;
+        }
       } catch (caught) {
         if (!isMounted) {
           return;
@@ -810,6 +843,7 @@ export function App(): JSX.Element {
 
         const message = caught instanceof Error ? caught.message : String(caught);
         setModelListError(message || '第三方 API 配置文件读取失败。');
+        return;
       }
 
       void loadModels(sourceSettings);
@@ -1335,7 +1369,10 @@ export function App(): JSX.Element {
 
       setApiProviders(providers);
       setSettings(directSettings);
-      void loadModels(directSettings);
+
+      if (hasSelectedDirectApiConfig(apiDefaults, directSettings.providerId)) {
+        void loadModels(directSettings);
+      }
     },
     [apiDefaults, loadModels, refreshApiProviders, settings]
   );
@@ -1355,11 +1392,14 @@ export function App(): JSX.Element {
       setModelOptions([]);
       setSettings(nextSettings);
 
-      if (nextSettings.providerId || nextSettings.apiConnectionMode === 'direct') {
+      if (
+        nextSettings.apiConnectionMode === 'proxy' ||
+        hasSelectedDirectApiConfig(apiDefaults, nextSettings.providerId)
+      ) {
         void loadModels(nextSettings);
       }
     },
-    [apiProviders, loadModels, settings]
+    [apiDefaults, apiProviders, loadModels, settings]
   );
 
   const quitApp = useCallback((): void => {
@@ -1803,6 +1843,23 @@ export function App(): JSX.Element {
                 : '应用直接读取本机配置或设置面板里的第三方 API 配置。'}
             </span>
           </label>
+          {isDirectSetupUnavailable ? (
+            <div className="direct-setup-guide" aria-live="polite">
+              <strong>本地直连还没有配置完成</strong>
+              <span>本地直连需要在这台电脑上配置第三方 API 后才能使用。</span>
+              <div className="direct-setup-path">
+                <span>请创建或编辑这个文件：</span>
+                <code>%APPDATA%\study-region-tutor\.env.local</code>
+              </div>
+              <div className="direct-setup-path">
+                <span>最少填写：</span>
+                <code>AI_BASE_URL=https://你的第三方-api地址/v1</code>
+                <code>AI_API_KEY=你的第三方 API Key</code>
+              </div>
+              <span>保存后重启应用，再回到这里刷新模型列表。也可以切换为“代理服务”模式，填写开发者提供的 TUTOR_PROXY_TOKEN。</span>
+            </div>
+          ) : (
+            <>
           {isProxyConnection && (
             <>
               <div className={`proxy-summary ${proxyHealthStatus === 'error' ? 'danger' : ''}`}>
@@ -1991,6 +2048,8 @@ export function App(): JSX.Element {
             />
             只讲思路
           </label>
+            </>
+          )}
             </>
           )}
         </aside>

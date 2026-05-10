@@ -1,5 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join } from 'node:path';
+
+const ENV_FILES = ['.env.local', '.env'];
+const USER_CONFIG_DIR_NAME = 'study-region-tutor';
 
 function parseEnvValue(raw: string): string {
   const value = raw.trim();
@@ -42,7 +45,20 @@ function loadEnvFile(path: string): void {
   }
 }
 
-export function loadLocalEnv(): void {
-  loadEnvFile(resolve(process.cwd(), '.env.local'));
-  loadEnvFile(resolve(process.cwd(), '.env'));
+function loadEnvDirectory(directory: string): void {
+  for (const file of ENV_FILES) {
+    loadEnvFile(join(directory, file));
+  }
+}
+
+export function userConfigEnvDir(appDataPath: string): string {
+  return join(appDataPath, USER_CONFIG_DIR_NAME);
+}
+
+export function loadLocalEnv(options: { userConfigDir: string; includeWorkingDirectory?: boolean }): void {
+  if (options.includeWorkingDirectory) {
+    loadEnvDirectory(process.cwd());
+  }
+
+  loadEnvDirectory(options.userConfigDir);
 }

@@ -12,7 +12,7 @@
 
 ## 当前版本与发布
 
-- 当前版本：`1.0.0`。
+- 当前版本：`1.0.1`。
 - GitHub 仓库：`echo0314ww/study-region-tutor`。
 - Windows 发布通过 GitHub Actions 完成，不使用 Personal Access Token。
 - 发布工作流使用仓库自带 `GITHUB_TOKEN`；`GH_TOKEN` 只作为 electron-builder 兼容变量指向同一个仓库 token。
@@ -64,16 +64,17 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 README.md
 
 项目支持两种 API 连接模式：
 
-- 本地直连：应用读取本机 `.env.local`、`.env` 或环境变量中的第三方 API 配置。
+- 本地直连：打包应用读取用户配置目录 `%APPDATA%\study-region-tutor\.env.local`、同目录 `.env` 或环境变量中的第三方 API 配置；开发运行时额外优先读取项目根目录 `.env.local` / `.env`。
 - 代理服务：用户端只填写代理访问 Token；第三方 API Key 保留在开发者电脑或代理服务端，不下发给用户。
 
 重要约定：
 
-- `.env.local` 不提交仓库，里面保存第三方 API Key、代理 Token、ngrok Token 等敏感配置。
+- 项目根目录 `.env.local` 不提交仓库，里面保存第三方 API Key、代理 Token、ngrok Token 等敏感配置；用户本地直连配置放在 `%APPDATA%\study-region-tutor\.env.local`。
 - API 代理请求需要 `Authorization: Bearer <TUTOR_PROXY_TOKEN>`。
 - 公告接口不需要 Token。
 - 用户只填写 `TUTOR_PROXY_TOKEN` 即可使用 API 代理；不需要知道第三方 API Key。
 - 用户端首次填写 `TUTOR_PROXY_TOKEN` 并成功刷新代理服务商后，会在本机保存代理 Token；后续可留空使用已保存 Token。保存优先使用 Electron `safeStorage`，鉴权失败时清除旧 Token 并要求重新填写。
+- 本地直连配置缺失或模型列表刷新失败时，设置页只显示应用更新、API 连接模式和本地直连配置指引，隐藏后续 API/OCR 设置。
 - 如果使用内置默认代理地址，普通设置页不显示远程服务地址输入框，只显示连接状态。
 - 高级设置是独立调试视图，只保留：代理服务地址输入框、验证是否连接成功、恢复默认地址、验证结果提示。
 
@@ -156,9 +157,9 @@ npm run ngrok:dev
 
 ## 当前本地状态提醒
 
-- `1.0.0` 发布材料已准备：版本号、更新记录、Release Notes 和版本更新公告已同步。
-- `announcements/releases.json` 当前可见版本公告为 `release-v1.0.0`。
-- 推送 tag `v1.0.0` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
+- `1.0.1` 发布材料已准备：版本号、更新记录、Release Notes 和版本更新公告已同步。
+- `announcements/releases.json` 当前可见版本公告为 `release-v1.0.1`。
+- 推送 tag `v1.0.1` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
 - 根目录曾出现未跟踪文件 `image/CHANGELOG/1778343915388.png`，创建时间为 `2026/5/10 00:25:15`，未纳入发布。
 - 不要把 `.env.local`、API Key、代理 Token、ngrok Token 提交到仓库。
 
