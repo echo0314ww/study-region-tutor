@@ -12,7 +12,7 @@
 
 ## 当前版本与发布
 
-- 当前版本：`1.0.1`。
+- 当前版本：`1.0.2`。
 - GitHub 仓库：`echo0314ww/study-region-tutor`。
 - Windows 发布通过 GitHub Actions 完成，不使用 Personal Access Token。
 - 发布工作流使用仓库自带 `GITHUB_TOKEN`；`GH_TOKEN` 只作为 electron-builder 兼容变量指向同一个仓库 token。
@@ -21,6 +21,7 @@
 - Release 页面说明来自 `RELEASE_NOTES.md`。
 - `.github/workflows/release-windows.yml` 在发布完成后会运行 `scripts/sync-release-notes.mjs`，把 `RELEASE_NOTES.md` 中对应 tag 的说明同步到 GitHub Release body。
 - `.github/workflows/sync-release-notes.yml` 也会在 `RELEASE_NOTES.md` 更新后同步已有 release 说明。
+- 每次正式发布新版本后，还要同步更新本地 `release/` 文件夹：删除旧版本安装包、旧 `.blockmap` 和旧 `latest.yml`，运行 `npm run dist` 重新生成当前版本产物，并确认 `release/latest.yml` 的 `version`、`path` 指向本次版本。
 
 常用发布流程：
 
@@ -30,6 +31,7 @@ git add 需要发布的文件
 git commit -m "Release vX.Y.Z"
 git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin main vX.Y.Z
+npm run dist
 ```
 
 发布前应至少验证：
@@ -45,6 +47,7 @@ node --check scripts/sync-release-notes.mjs
 ```
 
 在当前 Codex 环境里，`npm run test` 和 `npm run build` 偶尔会因为 esbuild `spawn EPERM` 失败，需要用提升权限重跑。
+`npm run dist` 也可能遇到同类限制；如果本地打包失败且报 `spawn EPERM`，用提升权限重跑。打包完成后检查 `release/`，只保留最新版本的安装包、`.blockmap`、`latest.yml` 和 `win-unpacked`。
 
 ## 文档分工
 
@@ -74,7 +77,7 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 README.md
 - 公告接口不需要 Token。
 - 用户只填写 `TUTOR_PROXY_TOKEN` 即可使用 API 代理；不需要知道第三方 API Key。
 - 用户端首次填写 `TUTOR_PROXY_TOKEN` 并成功刷新代理服务商后，会在本机保存代理 Token；后续可留空使用已保存 Token。保存优先使用 Electron `safeStorage`，鉴权失败时清除旧 Token 并要求重新填写。
-- 本地直连配置缺失或模型列表刷新失败时，设置页只显示应用更新、API 连接模式和本地直连配置指引，隐藏后续 API/OCR 设置。
+- 本地直连配置缺失或模型列表刷新失败时，设置页只显示应用更新、API 连接模式和本地直连配置指引，隐藏后续 API/OCR 设置；配置指引应显示当前用户实际 `.env.local` 路径，例如 `C:\Users\用户名\AppData\Roaming\study-region-tutor\.env.local`，不要只显示 `%APPDATA%` 占位符。
 - 如果使用内置默认代理地址，普通设置页不显示远程服务地址输入框，只显示连接状态。
 - 高级设置是独立调试视图，只保留：代理服务地址输入框、验证是否连接成功、恢复默认地址、验证结果提示。
 
@@ -98,6 +101,7 @@ npm run proxy:dev
 npm run ngrok:dev
 ```
 
+- 本地调试需要同时准备 `proxy:dev`、`ngrok:dev` 和 `dev` 三个 PowerShell 标签页时，可以运行 `npm run dev:tabs` 或双击根目录 `open-dev-tabs.bat`。该脚本只打开同一个 Windows Terminal 窗口中的三个标签页，并让它们进入项目根目录；不会自动运行 npm 命令。
 - `proxy:dev`：启动本地代理、公告服务和 API 转发服务。
 - `ngrok:dev`：启动 ngrok 隧道，读取 `.env.local` 中的 `NGROK_AUTHTOKEN` 和 `TUTOR_PROXY_PORT`，并把公网地址写回 `TUTOR_PUBLIC_PROXY_URL`。
 - 如果 `NGROK_AUTHTOKEN` 或端口变化，`ngrok:dev` 会自动重启隧道。
@@ -138,10 +142,14 @@ npm run ngrok:dev
 
 - 应用启动后默认只显示顶部工具栏。
 - 顶部工具栏包含截图、识别并讲解、对话、公告、设置、退出应用等入口。
+- 顶部工具栏可通过左侧拖动手柄移动；设置面板可通过标题栏拖动。位置只在本次运行期间保留，不写入本地存储。
+- 渲染层已按职责拆分：`App.tsx` 保留主流程编排，面板 UI 放在 `src/renderer/src/components/`，公告连接状态在 `useAnnouncements`，鼠标穿透/拖动逻辑在 `usePointerInteractions`。
 - 点击截图按钮后显示可拖动、可缩放的截图框。
 - 识别和讲解过程中隐藏截图框。
+- 本地 OCR 模式和图片接口失败后的 OCR 兜底都会先进入“可编辑 OCR 结果确认”状态；用户点击“发送讲解”前，不会把 OCR 文本发送给第三方 API，也不会创建题目会话。
 - 结果窗口、设置窗口和顶部工具栏外的透明区域应尽量点击穿透，不阻挡底层网页或桌面。
 - 结果窗口支持拖动和调整大小。
+- 结果窗口使用 KaTeX 渲染标准 LaTeX；提示词要求模型直接用 `\(...\)` / `\[...\]` 输出公式，不再写“补充 LaTeX:”或扁平公式文本。独占一行的行内公式会提升为块级显示，紧邻 LaTeX 的重复扁平公式会被隐藏；`x²/16 + y²/12 = 1`、`4√7/7` 等常见扁平公式会尽量转换成 LaTeX 后渲染；渲染失败时才退回普通可读文本。
 - 设置面板不再展示不必要的 API Base URL 和 API Key 明细。
 - 高级设置中代理验证提示文案当前要求：
   - 默认地址成功：`默认代理服务地址连接成功，可以返回普通设置选择 API 服务。`
@@ -157,10 +165,11 @@ npm run ngrok:dev
 
 ## 当前本地状态提醒
 
-- `1.0.1` 发布材料已准备：版本号、更新记录、Release Notes 和版本更新公告已同步。
-- `announcements/releases.json` 当前可见版本公告为 `release-v1.0.1`。
-- 推送 tag `v1.0.1` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
-- 根目录曾出现未跟踪文件 `image/CHANGELOG/1778343915388.png`，创建时间为 `2026/5/10 00:25:15`，未纳入发布。
+- `v1.0.2` 发布内容：OCR 结果确认页、图片失败后的 OCR 确认兜底、KaTeX 公式渲染、扁平公式转 LaTeX、提示词公式输出约束、工具栏/设置面板拖动、开发标签页脚本，以及 `App.tsx` 渲染层拆分。
+- `announcements/releases.json` 当前可见版本公告为 `release-v1.0.2`。
+- `v1.0.2` 发布材料已同步到 `package.json`、`package-lock.json`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`PROJECT_CONTEXT.md` 和版本公告。
+- 推送 tag `v1.0.2` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
+- 发布完成后仍需同步本地 `release/` 文件夹，确认 `release/latest.yml` 和安装包都指向当前最新版本。
 - 不要把 `.env.local`、API Key、代理 Token、ngrok Token 提交到仓库。
 
 ## 下次继续开发时优先检查
@@ -178,4 +187,4 @@ npm run lint
 - `CHANGELOG.md`
 - `RELEASE_NOTES.md`
 
-然后提交、打 tag、推送，让 GitHub Actions 自动发布。
+然后提交、打 tag、推送，让 GitHub Actions 自动发布。发布完成后运行 `npm run dist` 更新本地 `release/`，并确认本地 `release/latest.yml` 和安装包都是最新版本。

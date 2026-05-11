@@ -9,11 +9,17 @@ import type {
   ApiRuntimeDefaults,
   CancelRequest,
   EndQuestionSessionRequest,
+  ExplainRecognizedTextRequest,
   ExplainRequest,
+  ExplainRegionResult,
   ExplainResult,
   FollowUpRequest,
   FollowUpResult,
+  InputMode,
   ModelListResult,
+  OcrPreviewReason,
+  OcrPreviewResult,
+  RecognizeRegionRequest,
   RegionBounds,
   TutorSettings,
   UpdateStatusEvent
@@ -81,11 +87,16 @@ function loadAppEnv(): void {
   });
 }
 
+function localEnvPath(): string {
+  return join(userConfigEnvDir(app.getPath('appData')), '.env.local');
+}
+
 function runtimeApiDefaults(): ApiRuntimeDefaults {
   const defaults = getRuntimeApiDefaults();
 
   return {
     ...defaults,
+    localEnvPath: localEnvPath(),
     hasProxyToken: defaults.hasProxyToken || hasSavedProxyToken()
   };
 }
@@ -295,8 +306,8 @@ function ocrProblemContext(recognizedText: string, answer: string): string {
 }
 
 function createSessionAndResult(
-  request: ExplainRequest,
-  sourceMode: 'image' | 'ocr-text',
+  settings: TutorSettings,
+  sourceMode: InputMode,
   problemContext: string,
   firstUserContent: string,
   answer: string,
@@ -304,7 +315,7 @@ function createSessionAndResult(
   processLog: string
 ): ExplainResult {
   const session = createQuestionSession({
-    settings: request.settings,
+    settings,
     sourceMode,
     problemContext,
     firstUserContent,
@@ -384,6 +395,91 @@ function explainTextRequest(
     : explainRecognizedTextWithMetadata(recognizedText, settings, signal, onDelta);
 }
 
+async function captureRegionForRequest(
+  request: Pick<ExplainRequest, 'region'>,
+  signal: AbortSignal,
+  emitProgress: (line: string) => string
+): Promise<{ dataUrl: string; processLog: string }> {
+  let latestProcessLog = emitProgress(`准备识别，只处理当前框选区域：${regionText(request.region)}。`);
+
+  mainWindow?.webContents.send(IPC_CHANNELS.setCaptureUiVisible, false);
+  latestProcessLog = emitProgress('正在隐藏应用控制层，避免把按钮和结果窗口截入图片。');
+
+  let dataUrl: string;
+
+  try {
+    await abortableDelay(120, signal);
+    throwIfAborted(signal);
+    dataUrl = await captureRegionAsDataUrl(request.region);
+    throwIfAborted(signal);
+  } finally {
+    mainWindow?.webContents.send(IPC_CHANNELS.setCaptureUiVisible, true);
+  }
+
+  latestProcessLog = emitProgress('已完成区域截图，并已恢复应用控制层。');
+
+  return { dataUrl, processLog: latestProcessLog };
+}
+
+async function createOcrPreviewFromDataUrl(
+  dataUrl: string,
+  settings: TutorSettings,
+  signal: AbortSignal,
+  emitProgress: (line: string) => string,
+  reason: OcrPreviewReason,
+  sourceMode: InputMode,
+  fallbackReason?: string
+): Promise<OcrPreviewResult> {
+  let latestProcessLog = emitProgress(
+    reason === 'image-fallback' ? '正在对同一张截图执行本地 OCR 兜底。' : '正在对截图执行本地 OCR。'
+  );
+  const recognizedText = await recognizeTextFromDataUrl(dataUrl, settings, signal);
+  throwIfAborted(signal);
+  latestProcessLog = emitProgress(`本地 OCR 已完成，OCR 结果长度：${recognizedText.length} 个字符。`);
+  latestProcessLog = emitProgress('已暂停发送第三方文本接口，等待你检查 OCR 识别结果。');
+
+  return {
+    type: 'ocr-preview',
+    recognizedText,
+    processLog: latestProcessLog,
+    sourceMode,
+    reason,
+    ...(fallbackReason ? { fallbackReason } : {})
+  };
+}
+
+function confirmedOcrPrompt(recognizedText: string, reason: OcrPreviewReason): string {
+  if (reason !== 'image-fallback') {
+    return recognizedText;
+  }
+
+  return [
+    '以下是直接图片接口失败后，本地 OCR 得到并经用户检查/编辑后的题目文字。',
+    '请忽略“图片接口失败”这个技术过程，只根据 OCR 文本中的题目进行学习性讲解。',
+    '',
+    recognizedText
+  ].join('\n');
+}
+
+function confirmedOcrUserContent(
+  recognizedText: string,
+  sourceMode: InputMode,
+  reason: OcrPreviewReason
+): string {
+  if (sourceMode === 'image' || reason === 'image-fallback') {
+    return [
+      '用户通过截图直接发送了一道学习题目，但图片接口失败。',
+      '程序随后使用本地 OCR 识别题目文字，并由用户检查/编辑后确认发送。',
+      '',
+      recognizedText
+    ].join('\n');
+  }
+
+  return ['用户通过本地 OCR 文本模式提交了一道学习题目，并在发送前检查/编辑了 OCR 文本。', '', recognizedText].join(
+    '\n'
+  );
+}
+
 function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getApiDefaults, (): ApiRuntimeDefaults => runtimeApiDefaults());
 
@@ -460,6 +556,72 @@ function registerIpc(): void {
     endQuestionSession(request.sessionId);
   });
 
+  ipcMain.handle(IPC_CHANNELS.recognizeRegion, async (event, request: RecognizeRegionRequest): Promise<OcrPreviewResult> => {
+    const signal = beginCancelableRequest(request.requestId);
+    const emitProgress = createProgressEmitter(event.sender, request.requestId);
+
+    try {
+      const { dataUrl } = await captureRegionForRequest(request, signal, emitProgress);
+      return createOcrPreviewFromDataUrl(
+        dataUrl,
+        request.settings,
+        signal,
+        emitProgress,
+        'ocr-mode',
+        'ocr-text'
+      );
+    } finally {
+      finishCancelableRequest(request.requestId);
+    }
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.explainRecognizedText,
+    async (event, request: ExplainRecognizedTextRequest): Promise<ExplainResult> => {
+      const signal = beginCancelableRequest(request.requestId);
+      const emitProgress = createProgressEmitter(event.sender, request.requestId);
+      const emitAnswerDelta = createAnswerDeltaEmitter(event.sender, request.requestId);
+
+      try {
+        const recognizedText = request.recognizedText.trim();
+
+        if (!recognizedText) {
+          throw new Error('OCR 结果为空，请重新框选更清晰的题目区域。');
+        }
+
+        let latestProcessLog = emitProgress('已收到你确认后的 OCR 文本。');
+
+        if (request.reason === 'image-fallback' && request.fallbackReason) {
+          latestProcessLog = emitProgress(`此前图片接口失败原因：${compactMessage(request.fallbackReason)}`);
+        }
+
+        latestProcessLog = emitProgress('正在将确认后的 OCR 文本发送给第三方文本接口进行题目讲解。');
+        const answer = await explainTextRequest(
+          confirmedOcrPrompt(recognizedText, request.reason),
+          request.settings,
+          signal,
+          emitAnswerDelta
+        );
+        throwIfAborted(signal);
+        latestProcessLog = emitProgress('OCR 文本接口请求成功，已生成讲解结果。');
+        latestProcessLog = emitProgress('已创建本题会话，可以继续围绕这道题追问。');
+        latestProcessLog = emitProgress('未保存截图到磁盘，也未记录截图内容。');
+
+        return createSessionAndResult(
+          request.settings,
+          request.sourceMode,
+          ocrProblemContext(recognizedText, answer.text),
+          confirmedOcrUserContent(recognizedText, request.sourceMode, request.reason),
+          answer.text,
+          answer.responseId,
+          latestProcessLog
+        );
+      } finally {
+        finishCancelableRequest(request.requestId);
+      }
+    }
+  );
+
   ipcMain.handle(IPC_CHANNELS.askFollowUp, async (event, request: FollowUpRequest): Promise<FollowUpResult> => {
     const signal = beginCancelableRequest(request.requestId);
     const emitProgress = createProgressEmitter(event.sender, request.requestId);
@@ -510,28 +672,14 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.explainRegion, async (event, request: ExplainRequest): Promise<ExplainResult> => {
+  ipcMain.handle(IPC_CHANNELS.explainRegion, async (event, request: ExplainRequest): Promise<ExplainRegionResult> => {
     const signal = beginCancelableRequest(request.requestId);
     const emitProgress = createProgressEmitter(event.sender, request.requestId);
     const emitAnswerDelta = createAnswerDeltaEmitter(event.sender, request.requestId);
 
     try {
-      let latestProcessLog = emitProgress(`准备识别，只处理当前框选区域：${regionText(request.region)}。`);
-
-      mainWindow?.webContents.send(IPC_CHANNELS.setCaptureUiVisible, false);
-      latestProcessLog = emitProgress('正在隐藏应用控制层，避免把按钮和结果窗口截入图片。');
-
-      let dataUrl: string;
-
-      try {
-        await abortableDelay(120, signal);
-        throwIfAborted(signal);
-        dataUrl = await captureRegionAsDataUrl(request.region);
-        throwIfAborted(signal);
-      } finally {
-        mainWindow?.webContents.send(IPC_CHANNELS.setCaptureUiVisible, true);
-      }
-      latestProcessLog = emitProgress('已完成区域截图，并已恢复应用控制层。');
+      const { dataUrl, processLog } = await captureRegionForRequest(request, signal, emitProgress);
+      let latestProcessLog = processLog;
 
       if (request.settings.inputMode === 'image') {
         latestProcessLog = emitProgress('当前输入方式：直接发送图片。');
@@ -544,7 +692,7 @@ function registerIpc(): void {
           latestProcessLog = emitProgress('已创建本题会话，可以继续围绕这道题追问。');
           latestProcessLog = emitProgress('未保存截图到磁盘，也未记录截图内容。');
           return createSessionAndResult(
-            request,
+            request.settings,
             'image',
             imageProblemContext(answer.text),
             '用户通过截图直接发送了一道学习题目。',
@@ -558,90 +706,23 @@ function registerIpc(): void {
           }
 
           // Some third-party providers accept short image requests but fail on larger
-          // vision payloads. Keep the screenshot local and fall back to OCR text.
+          // vision payloads. Keep the screenshot local and let the user confirm OCR text.
           const imageErrorText = errorMessage(imageError);
           latestProcessLog = emitProgress(`图片接口请求失败，已停止图片直传。失败原因：${compactMessage(imageErrorText)}`);
-          latestProcessLog = emitProgress('正在对同一张截图执行本地 OCR 兜底。');
           emitAnswerDelta('', true);
-          const recognizedText = await recognizeTextFromDataUrl(dataUrl, request.settings, signal);
-          throwIfAborted(signal);
-          latestProcessLog = emitProgress(`本地 OCR 已完成，OCR 结果长度：${recognizedText.length} 个字符。`);
-          latestProcessLog = emitProgress('正在将 OCR 文本发送给第三方文本接口进行题目讲解。');
-
-          try {
-            const answer = await explainTextRequest(
-              [
-                '以下是直接图片接口失败后，本地 OCR 得到的题目文字。',
-                '请忽略“图片接口失败”这个技术过程，只根据 OCR 文本中的题目进行学习性讲解。',
-                '',
-                recognizedText
-              ].join('\n'),
-              request.settings,
-              signal,
-              emitAnswerDelta
-            );
-            throwIfAborted(signal);
-            latestProcessLog = emitProgress('OCR 文本接口请求成功，已生成讲解结果。');
-            latestProcessLog = emitProgress('已创建本题会话，可以继续围绕这道题追问。');
-            latestProcessLog = emitProgress('未保存截图到磁盘，也未记录截图内容。');
-            return createSessionAndResult(
-              request,
-              'image',
-              ocrProblemContext(recognizedText, answer.text),
-              [
-                '用户通过截图直接发送了一道学习题目，但图片接口失败。',
-                '程序随后使用本地 OCR 识别出题目文字。',
-                '',
-                recognizedText
-              ].join('\n'),
-              answer.text,
-              answer.responseId,
-              latestProcessLog
-            );
-          } catch (ocrFallbackError) {
-            if (isOperationCanceled(ocrFallbackError)) {
-              throw ocrFallbackError;
-            }
-
-            latestProcessLog = emitProgress(
-              `OCR 兜底后的文本请求失败。失败原因：${compactMessage(errorMessage(ocrFallbackError))}`
-            );
-            throw new Error(
-              [
-                latestProcessLog,
-                '',
-                '## 失败原因',
-                '',
-                '直接发送图片失败，OCR 兜底后的文本请求也失败。',
-                `图片接口错误：${compactMessage(imageErrorText)}`,
-                `OCR 文本接口错误：${compactMessage(errorMessage(ocrFallbackError))}`,
-                '',
-                '建议先切换到“本地 OCR 后发文字”，或在设置里关闭/降低思考程度后重试。'
-              ].join('\n')
-            );
-          }
+          return createOcrPreviewFromDataUrl(
+            dataUrl,
+            request.settings,
+            signal,
+            emitProgress,
+            'image-fallback',
+            'image',
+            imageErrorText
+          );
         }
       } else {
         latestProcessLog = emitProgress('当前输入方式：本地 OCR 后发文字。');
-        latestProcessLog = emitProgress('正在对截图执行本地 OCR。');
-        const recognizedText = await recognizeTextFromDataUrl(dataUrl, request.settings, signal);
-        throwIfAborted(signal);
-        latestProcessLog = emitProgress(`本地 OCR 已完成，OCR 结果长度：${recognizedText.length} 个字符。`);
-        latestProcessLog = emitProgress('正在将 OCR 文本发送给第三方文本接口进行题目讲解。');
-        const answer = await explainTextRequest(recognizedText, request.settings, signal, emitAnswerDelta);
-        throwIfAborted(signal);
-        latestProcessLog = emitProgress('OCR 文本接口请求成功，已生成讲解结果。');
-        latestProcessLog = emitProgress('已创建本题会话，可以继续围绕这道题追问。');
-        latestProcessLog = emitProgress('未保存截图到磁盘，也未记录截图内容。');
-        return createSessionAndResult(
-          request,
-          'ocr-text',
-          ocrProblemContext(recognizedText, answer.text),
-          ['用户通过本地 OCR 文本模式提交了一道学习题目。', '', recognizedText].join('\n'),
-          answer.text,
-          answer.responseId,
-          latestProcessLog
-        );
+        return createOcrPreviewFromDataUrl(dataUrl, request.settings, signal, emitProgress, 'ocr-mode', 'ocr-text');
       }
     } finally {
       finishCancelableRequest(request.requestId);

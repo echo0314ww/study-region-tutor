@@ -1,5 +1,7 @@
 export const IPC_CHANNELS = {
   explainRegion: 'tutor:explain-region',
+  recognizeRegion: 'tutor:recognize-region',
+  explainRecognizedText: 'tutor:explain-recognized-text',
   explainProgress: 'tutor:explain-progress',
   answerDelta: 'tutor:answer-delta',
   askFollowUp: 'tutor:ask-follow-up',

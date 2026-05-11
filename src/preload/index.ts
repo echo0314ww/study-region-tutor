@@ -7,12 +7,16 @@ import type {
   ApiProviderOption,
   CancelRequest,
   EndQuestionSessionRequest,
+  ExplainRecognizedTextRequest,
   ExplainProgressEvent,
   ExplainRequest,
+  ExplainRegionResult,
   ExplainResult,
+  OcrPreviewResult,
   FollowUpRequest,
   FollowUpResult,
   ModelListResult,
+  RecognizeRegionRequest,
   ProxyHealthResult,
   RegionBounds,
   TutorSettings,
@@ -20,8 +24,12 @@ import type {
 } from '../shared/types';
 
 const api = {
-  explainRegion: (request: ExplainRequest): Promise<ExplainResult> =>
+  explainRegion: (request: ExplainRequest): Promise<ExplainRegionResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.explainRegion, request),
+  recognizeRegion: (request: RecognizeRegionRequest): Promise<OcrPreviewResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.recognizeRegion, request),
+  explainRecognizedText: (request: ExplainRecognizedTextRequest): Promise<ExplainResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.explainRecognizedText, request),
   askFollowUp: (request: FollowUpRequest): Promise<FollowUpResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.askFollowUp, request),
   cancelRequest: (request: CancelRequest): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.cancelRequest, request),

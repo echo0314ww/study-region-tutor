@@ -1,6 +1,8 @@
 import { Fragment, useMemo } from 'react';
-import { cleanLatexSource, latexToReadable, parseAnswerBlocks } from './answerFormat';
+import katex from 'katex';
+import { cleanLatexSource, flatFormulaToLatex, latexToReadable, parseAnswerBlocks } from './answerFormat';
 import type { AnswerBlock } from './answerFormat';
+import 'katex/dist/katex.min.css';
 
 interface AnswerRendererProps {
   text: string;
@@ -25,32 +27,116 @@ function inlineParts(text: string): Array<{ type: 'text' | 'math'; text: string 
     parts.push({ type: 'text', text: text.slice(lastIndex) });
   }
 
-  return parts;
+  // Second pass: try to convert flat formula segments in text parts
+  const enriched: Array<{ type: 'text' | 'math'; text: string }> = [];
+
+  for (const part of parts) {
+    if (part.type === 'math') {
+      enriched.push(part);
+      continue;
+    }
+
+    // Try to find flat formula segments inside text
+    // Match segments that look like formulas: contain math operators/Unicode scripts
+    // with variables/numbers around them
+    const flatPattern =
+      /(?:[A-Za-z0-9_]+(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎]+)?(?:\s*[+\-=<>×÷≤≥≠≈∈·±/]\s*)?)+(?:[A-Za-z0-9_]+(?:[⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎]+)?)+|√[A-Za-z0-9(][^，。；\s]*/g;
+    let flatMatch: RegExpExecArray | null;
+    let flatLastIndex = 0;
+    let hasConversions = false;
+    const subParts: Array<{ type: 'text' | 'math'; text: string }> = [];
+
+    while ((flatMatch = flatPattern.exec(part.text))) {
+      const converted = flatFormulaToLatex(flatMatch[0]);
+
+      if (!converted) {
+        continue;
+      }
+
+      hasConversions = true;
+
+      if (flatMatch.index > flatLastIndex) {
+        subParts.push({ type: 'text', text: part.text.slice(flatLastIndex, flatMatch.index) });
+      }
+
+      subParts.push({ type: 'math', text: converted });
+      flatLastIndex = flatPattern.lastIndex;
+    }
+
+    if (!hasConversions) {
+      enriched.push(part);
+    } else {
+      if (flatLastIndex < part.text.length) {
+        subParts.push({ type: 'text', text: part.text.slice(flatLastIndex) });
+      }
+
+      enriched.push(...subParts);
+    }
+  }
+
+  return enriched;
 }
 
 function renderInline(text: string): JSX.Element[] {
   return inlineParts(text).map((part, index) => {
     if (part.type === 'math') {
-      return (
-        <span className="inline-math" key={`${part.type}-${index}`}>
-          {latexToReadable(part.text)}
-        </span>
-      );
+      return <InlineMath source={part.text} key={`${part.type}-${index}`} />;
     }
 
     return <Fragment key={`${part.type}-${index}`}>{part.text}</Fragment>;
   });
 }
 
+function renderKatex(source: string, displayMode: boolean): string | undefined {
+  try {
+    return katex.renderToString(cleanLatexSource(source), {
+      displayMode,
+      throwOnError: false,
+      strict: 'ignore',
+      trust: false
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function InlineMath({ source }: { source: string }): JSX.Element {
+  const cleanSource = cleanLatexSource(source);
+  const rendered = renderKatex(cleanSource, false);
+
+  if (rendered) {
+    return (
+      <span
+        className="inline-math-rendered"
+        dangerouslySetInnerHTML={{ __html: rendered }}
+        title={cleanSource}
+      />
+    );
+  }
+
+  const readable = latexToReadable(cleanSource);
+
+  return (
+    <span className="inline-math" title={cleanSource}>
+      {readable || cleanSource}
+    </span>
+  );
+}
+
 function renderMathBlock(block: Extract<AnswerBlock, { type: 'math' }>, index: number): JSX.Element {
   const source = cleanLatexSource(block.source);
   const readable = latexToReadable(source);
-  const showSource = source !== readable && /\\|[_^{}]/.test(source);
+  const rendered = renderKatex(source, true);
 
   return (
     <figure className="math-block" key={`math-${index}`}>
-      <div className="math-readable">{readable}</div>
-      {showSource && <code className="math-source">LaTeX: {source}</code>}
+      {rendered ? (
+        <div className="math-rendered" dangerouslySetInnerHTML={{ __html: rendered }} title={source} />
+      ) : (
+        <div className="math-fallback">
+          <div className="math-readable primary">{readable || source}</div>
+        </div>
+      )}
     </figure>
   );
 }

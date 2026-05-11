@@ -204,6 +204,32 @@ describe('resolveApiConfig', () => {
     });
   });
 
+  it('sends the user-confirmed OCR text to the text endpoint', async () => {
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => {
+      return new Response(JSON.stringify({ id: 'resp_confirmed_ocr', output_text: 'confirmed ok' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      explainRecognizedTextWithMetadata('用户修正后的公式：x^2 + y^2 = 1', {
+        ...baseSettings,
+        apiMode: 'responses'
+      })
+    ).resolves.toEqual({
+      text: 'confirmed ok',
+      responseId: 'resp_confirmed_ocr'
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    expect(String(body.input)).toContain('用户修正后的公式：x^2 + y^2 = 1');
+  });
+
   it('streams Responses answer deltas as they arrive', async () => {
     const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
       sseResponse([

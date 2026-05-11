@@ -154,6 +154,12 @@ textarea {
   backdrop-filter: blur(14px);
 }
 
+.toolbar-drag-handle {
+  flex: 0 0 auto;
+  cursor: move;
+  color: #506157;
+}
+
 .primary-button,
 .secondary-button,
 .icon-button {
@@ -266,6 +272,8 @@ button:disabled {
 .settings-panel .panel-header {
   padding: 0 0 12px;
   margin-bottom: 12px;
+  cursor: move;
+  user-select: none;
 }
 
 .settings-title-row {
@@ -446,43 +454,85 @@ button:disabled {
 }
 
 .inline-math {
-  display: inline-block;
+  display: inline;
   max-width: 100%;
-  padding: 1px 5px;
-  border-radius: 5px;
-  background: #eef7f1;
   color: #0f2b1c;
   font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
   overflow-wrap: anywhere;
 }
 
+.inline-math-rendered {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 1px;
+  vertical-align: -0.5ex;
+  overflow: visible;
+}
+
+.inline-math-rendered .katex {
+  font-size: 1.06em;
+  white-space: normal;
+}
+
+.inline-math-rendered .katex .sqrt .sqrt-sign {
+  overflow: visible;
+}
+
 .math-block {
-  margin: 10px 0;
-  padding: 10px 12px;
+  margin: 12px 0 14px;
+  padding: 8px 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+}
+
+.math-rendered {
+  width: max-content;
+  min-width: max-content;
+  margin: 0 auto;
+  color: #10251a;
+  overflow: visible;
+}
+
+.math-rendered .katex-display {
+  margin: 0.2em 0;
+  padding: 4px 0;
+  text-align: center;
+  overflow: visible;
+}
+
+.math-rendered .katex {
+  font-size: 1.16em;
+}
+
+.math-rendered .katex .sqrt .sqrt-sign {
+  overflow: visible;
+}
+
+.math-fallback {
+  width: max-content;
+  max-width: 100%;
+  margin: 0 auto;
   overflow-x: auto;
-  border: 1px solid #cde3d4;
-  border-radius: 8px;
-  background: #f5fbf7;
+  color: #10251a;
+  text-align: center;
 }
 
 .math-readable {
+  margin-top: 0;
   width: max-content;
-  min-width: 100%;
+  max-width: 100%;
   color: #10251a;
   font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
-  font-size: 17px;
+  font-size: 14px;
   line-height: 1.55;
   white-space: pre;
 }
 
-.math-source {
-  display: block;
-  margin-top: 7px;
-  color: #607167;
-  font-family: Consolas, "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre;
+.math-readable.primary {
+  font-size: 17px;
 }
 
 .answer-code {
@@ -562,6 +612,67 @@ button:disabled {
   font-size: 14px;
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+.ocr-preview {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.ocr-preview-header {
+  display: grid;
+  gap: 4px;
+}
+
+.ocr-preview-header span,
+.ocr-preview-meta,
+.ocr-preview-note {
+  color: #607167;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ocr-preview-note {
+  padding: 8px 10px;
+  border: 1px solid #d6e4dc;
+  border-radius: 8px;
+  background: #f7fbf8;
+  white-space: pre-wrap;
+}
+
+.ocr-preview-note.danger,
+.ocr-preview-meta.danger {
+  color: #a43a36;
+}
+
+.ocr-preview-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
+.ocr-preview-editor textarea {
+  width: 100%;
+  min-height: 180px;
+  flex: 1 1 auto;
+  resize: vertical;
+  border: 1px solid #c9d8cf;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+  color: #17241d;
+  line-height: 1.5;
+  user-select: text;
+}
+
+.ocr-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .follow-up-bar {

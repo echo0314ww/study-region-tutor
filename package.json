@@ -1,6 +1,6 @@
 {
   "name": "study-region-tutor",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A cross-platform desktop study assistant that explains selected screen regions.",
   "main": "out/main/index.js",
   "author": "",
@@ -9,6 +9,7 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:tabs": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/open-dev-tabs.ps1",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -22,11 +23,13 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.3",
+    "katex": "^0.16.45",
     "pngjs": "^7.0.0",
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@electron-toolkit/utils": "^3.0.0",
+    "@types/katex": "^0.16.8",
     "@types/node": "^22.10.2",
     "@types/pngjs": "^6.0.5",
     "@types/react": "^18.3.18",

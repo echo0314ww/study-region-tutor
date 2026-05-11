@@ -3,6 +3,7 @@ export type ApiMode = 'chat-completions' | 'responses';
 export type ApiModeSetting = ApiMode | 'env';
 export type ApiConnectionMode = 'direct' | 'proxy';
 export type InputMode = 'ocr-text' | 'image';
+export type OcrPreviewReason = 'ocr-mode' | 'image-fallback';
 export type OcrLanguage = 'chi_sim' | 'eng';
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type ReasoningEffortSetting = ReasoningEffort | 'off';
@@ -67,6 +68,7 @@ export interface ApiRuntimeDefaults {
   apiBaseUrl: string;
   apiMode?: ApiMode;
   hasApiKey: boolean;
+  localEnvPath?: string;
   providerId: string;
   providers: ApiProviderOption[];
   proxyUrl: string;
@@ -82,6 +84,32 @@ export interface ExplainRequest {
 export interface ExplainResult {
   text: string;
   sessionId: string;
+}
+
+export interface OcrPreviewResult {
+  type: 'ocr-preview';
+  recognizedText: string;
+  processLog: string;
+  sourceMode: InputMode;
+  reason: OcrPreviewReason;
+  fallbackReason?: string;
+}
+
+export type ExplainRegionResult = ExplainResult | OcrPreviewResult;
+
+export interface RecognizeRegionRequest {
+  requestId: string;
+  region: RegionBounds;
+  settings: TutorSettings;
+}
+
+export interface ExplainRecognizedTextRequest {
+  requestId: string;
+  recognizedText: string;
+  settings: TutorSettings;
+  sourceMode: InputMode;
+  reason: OcrPreviewReason;
+  fallbackReason?: string;
 }
 
 export interface ExplainProgressEvent {
