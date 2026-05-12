@@ -35,7 +35,8 @@ import {
 } from './uiUtils';
 import { useAnnouncements } from './useAnnouncements';
 import { usePointerInteractions } from './usePointerInteractions';
-import { SelectionOverlay } from './components/SelectionOverlay';
+import { CaptureConfirmOverlay } from './components/CaptureConfirmOverlay';
+import { DragCaptureOverlay } from './components/DragCaptureOverlay';
 import { Toolbar } from './components/Toolbar';
 import { AnnouncementPanel } from './components/AnnouncementPanel';
 import { ResultPanel } from './components/ResultPanel';
@@ -49,7 +50,8 @@ export function App(): JSX.Element {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResultOpen, setIsResultOpen] = useState(false);
   const [isCaptureUiVisible, setIsCaptureUiVisible] = useState(true);
-  const [isSelectionVisible, setIsSelectionVisible] = useState(false);
+  const [isDragCaptureActive, setIsDragCaptureActive] = useState(false);
+  const [pendingCaptureRegion, setPendingCaptureRegion] = useState<RegionBounds | null>(null);
   const [toolbarPosition, setToolbarPosition] = useState<FloatingPosition | null>(null);
   const [settingsPanelPosition, setSettingsPanelPosition] = useState<FloatingPosition | null>(null);
   const [result, setResult] = useState('');
@@ -80,6 +82,7 @@ export function App(): JSX.Element {
   const activeRequestIdRef = useRef('');
   const cancelingRequestIdRef = useRef('');
   const latestProgressTextRef = useRef('');
+  const hasAnswerStartedRef = useRef(false);
   const streamingAssistantTurnIdRef = useRef('');
   const streamingAnswerTextRef = useRef('');
   const modelRequestIdRef = useRef(0);
@@ -89,7 +92,8 @@ export function App(): JSX.Element {
     isModelCustomRef.current = isModelCustom;
   }, [isModelCustom]);
 
-  const floatingPassthroughMode = isCaptureUiVisible && !isSelectionVisible;
+  const hasPendingCaptureConfirm = pendingCaptureRegion !== null;
+  const floatingPassthroughMode = isCaptureUiVisible && !isDragCaptureActive && !hasPendingCaptureConfirm;
   const isProxyConnection = settings.apiConnectionMode === 'proxy';
   const manualProxyUrl = settings.proxyUrl.trim();
   const currentProxyUrl = manualProxyUrl || BUILT_IN_PROXY_URL || apiDefaults?.proxyUrl || '';
@@ -115,7 +119,6 @@ export function App(): JSX.Element {
     onPointerDownCapture,
     onResultPanelPointerDown,
     onFloatingPointerDown,
-    onSelectionPointerDown,
     onPointerMove,
     onPointerUp
   } = usePointerInteractions({
@@ -353,6 +356,15 @@ export function App(): JSX.Element {
     });
   }, []);
 
+  const hideProgressWhenAnswerStarts = useCallback((text: string): void => {
+    if (!text.trim()) {
+      return;
+    }
+
+    hasAnswerStartedRef.current = true;
+    setProgressText('');
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -414,7 +426,9 @@ export function App(): JSX.Element {
       }
 
       latestProgressTextRef.current = progress.text;
-      setProgressText(progress.text);
+      if (!hasAnswerStartedRef.current) {
+        setProgressText(progress.text);
+      }
       setIsResultOpen(true);
     });
     const unsubscribeAnswerDelta = window.studyTutor.onAnswerDelta((delta) => {
@@ -422,6 +436,10 @@ export function App(): JSX.Element {
         return;
       }
 
+      if (delta.reset) {
+        hasAnswerStartedRef.current = false;
+      }
+      hideProgressWhenAnswerStarts(delta.text);
       appendAnswerDelta(delta.text, delta.reset);
       setIsResultOpen(true);
     });
@@ -435,7 +453,7 @@ export function App(): JSX.Element {
       unsubscribeProgress();
       unsubscribeAnswerDelta();
     };
-  }, [appendAnswerDelta, loadModels, refreshApiProviders]);
+  }, [appendAnswerDelta, hideProgressWhenAnswerStarts, loadModels, refreshApiProviders]);
 
   useEffect(() => {
     if (!isSettingsOpen || !isProxyConnection || settingsView !== 'normal') {
@@ -458,6 +476,7 @@ export function App(): JSX.Element {
 
   const showOcrPreview = useCallback((preview: OcrPreviewResult): void => {
     latestProgressTextRef.current = preview.processLog;
+    hasAnswerStartedRef.current = false;
     streamingAssistantTurnIdRef.current = '';
     streamingAnswerTextRef.current = '';
     setOcrPreview(preview);
@@ -475,11 +494,13 @@ export function App(): JSX.Element {
       const requestId = createRequestId();
       activeRequestIdRef.current = requestId;
       latestProgressTextRef.current = '';
+      hasAnswerStartedRef.current = false;
       streamingAssistantTurnIdRef.current = '';
       streamingAnswerTextRef.current = '';
       setIsLoading(true);
       setIsCancelling(false);
-      setIsSelectionVisible(false);
+      setIsDragCaptureActive(false);
+      setPendingCaptureRegion(null);
       setStoppedMessage('');
       setError('');
       setOcrPreview(null);
@@ -518,6 +539,7 @@ export function App(): JSX.Element {
         const streamedTurnId = streamingAssistantTurnIdRef.current;
         const streamedText = streamingAnswerTextRef.current;
         const finalText = streamedText || response.text;
+        hideProgressWhenAnswerStarts(finalText);
         streamingAssistantTurnIdRef.current = '';
         streamingAnswerTextRef.current = '';
         setResult(finalText);
@@ -548,7 +570,7 @@ export function App(): JSX.Element {
             setConversationTurns((current) => current.filter((turn) => turn.id !== streamedTurnId));
           }
           setResult('');
-          setIsSelectionVisible(true);
+          setIsDragCaptureActive(false);
           setStoppedMessage('已停止当前识别/回答。');
           setProgressText('');
           return;
@@ -569,13 +591,22 @@ export function App(): JSX.Element {
           setConversationTurns((current) => current.filter((turn) => turn.id !== streamedTurnId));
         }
         setResult('');
-        setIsSelectionVisible(true);
+        setIsDragCaptureActive(false);
       } finally {
         setIsLoading(false);
         setIsCancelling(false);
       }
     },
-    [absoluteRegion, activeSessionId, addProviderSwitchHint, clearSavedProxyTokenState, region, settings, showOcrPreview]
+    [
+      absoluteRegion,
+      activeSessionId,
+      addProviderSwitchHint,
+      clearSavedProxyTokenState,
+      hideProgressWhenAnswerStarts,
+      region,
+      settings,
+      showOcrPreview
+    ]
   );
 
   const sendOcrPreview = useCallback(async (): Promise<void> => {
@@ -594,6 +625,7 @@ export function App(): JSX.Element {
     const requestId = createRequestId();
     activeRequestIdRef.current = requestId;
     latestProgressTextRef.current = '';
+    hasAnswerStartedRef.current = false;
     streamingAssistantTurnIdRef.current = '';
     streamingAnswerTextRef.current = '';
     setIsLoading(true);
@@ -618,6 +650,7 @@ export function App(): JSX.Element {
       const streamedTurnId = streamingAssistantTurnIdRef.current;
       const streamedText = streamingAnswerTextRef.current;
       const finalText = streamedText || response.text;
+      hideProgressWhenAnswerStarts(finalText);
       streamingAssistantTurnIdRef.current = '';
       streamingAnswerTextRef.current = '';
       setResult(finalText);
@@ -673,7 +706,7 @@ export function App(): JSX.Element {
       setIsLoading(false);
       setIsCancelling(false);
     }
-  }, [addProviderSwitchHint, clearSavedProxyTokenState, isLoading, ocrPreview, settings]);
+  }, [addProviderSwitchHint, clearSavedProxyTokenState, hideProgressWhenAnswerStarts, isLoading, ocrPreview, settings]);
 
   const retry = useCallback(() => {
     if (lastRequestRef.current) {
@@ -696,7 +729,9 @@ export function App(): JSX.Element {
     setFollowUpText('');
     streamingAssistantTurnIdRef.current = '';
     streamingAnswerTextRef.current = '';
-    setIsSelectionVisible(true);
+    setPendingCaptureRegion(null);
+    setIsDragCaptureActive(true);
+    setIsResultOpen(false);
   }, [activeSessionId]);
 
   const startNextQuestion = useCallback(async (): Promise<void> => {
@@ -714,8 +749,9 @@ export function App(): JSX.Element {
     setFollowUpText('');
     streamingAssistantTurnIdRef.current = '';
     streamingAnswerTextRef.current = '';
-    setIsSelectionVisible(true);
-    setIsResultOpen(true);
+    setPendingCaptureRegion(null);
+    setIsDragCaptureActive(true);
+    setIsResultOpen(false);
   }, [activeSessionId]);
 
   const sendFollowUp = useCallback(async (): Promise<void> => {
@@ -728,6 +764,7 @@ export function App(): JSX.Element {
     const requestId = createRequestId();
     activeRequestIdRef.current = requestId;
     latestProgressTextRef.current = '';
+    hasAnswerStartedRef.current = false;
     streamingAssistantTurnIdRef.current = '';
     streamingAnswerTextRef.current = '';
     setIsLoading(true);
@@ -758,6 +795,7 @@ export function App(): JSX.Element {
       const streamedTurnId = streamingAssistantTurnIdRef.current;
       const streamedText = streamingAnswerTextRef.current;
       const finalText = streamedText || response.text;
+      hideProgressWhenAnswerStarts(finalText);
       streamingAssistantTurnIdRef.current = '';
       streamingAnswerTextRef.current = '';
       setResult(finalText);
@@ -790,7 +828,7 @@ export function App(): JSX.Element {
         );
         setResult('');
         setStoppedMessage('已停止本轮追问。');
-        setIsSelectionVisible(false);
+        setIsDragCaptureActive(false);
         setProgressText('');
         return;
       }
@@ -818,7 +856,15 @@ export function App(): JSX.Element {
       setIsLoading(false);
       setIsCancelling(false);
     }
-  }, [activeSessionId, addProviderSwitchHint, clearSavedProxyTokenState, followUpText, isLoading, settings]);
+  }, [
+    activeSessionId,
+    addProviderSwitchHint,
+    clearSavedProxyTokenState,
+    followUpText,
+    hideProgressWhenAnswerStarts,
+    isLoading,
+    settings
+  ]);
 
   const cancelCurrentRequest = useCallback((): void => {
     const requestId = activeRequestIdRef.current;
@@ -935,6 +981,50 @@ export function App(): JSX.Element {
     setIsSettingsOpen(false);
   }, []);
 
+  const startDragCapture = useCallback((): void => {
+    setPendingCaptureRegion(null);
+    setIsDragCaptureActive(true);
+    setIsResultOpen(false);
+    setSettingsView('normal');
+    setIsSettingsOpen(false);
+    closeAnnouncementPanel();
+  }, [closeAnnouncementPanel]);
+
+  const cancelDragCapture = useCallback((): void => {
+    setIsDragCaptureActive(false);
+    setPendingCaptureRegion(null);
+  }, []);
+
+  const handleDragCapture = useCallback(
+    (selectedRegion: RegionBounds): void => {
+      const nextRegion = {
+        x: Math.round(selectedRegion.x),
+        y: Math.round(selectedRegion.y),
+        width: Math.round(selectedRegion.width),
+        height: Math.round(selectedRegion.height)
+      };
+
+      setRegion(nextRegion);
+      setIsDragCaptureActive(false);
+      setPendingCaptureRegion(nextRegion);
+    },
+    []
+  );
+
+  const confirmPendingCapture = useCallback((): void => {
+    if (!pendingCaptureRegion) {
+      return;
+    }
+
+    const confirmedRegion = pendingCaptureRegion;
+    setPendingCaptureRegion(null);
+    void runExplain(confirmedRegion);
+  }, [pendingCaptureRegion, runExplain]);
+
+  const cancelPendingCapture = useCallback((): void => {
+    setPendingCaptureRegion(null);
+  }, []);
+
   return (
     <main
       className="app-shell"
@@ -943,23 +1033,32 @@ export function App(): JSX.Element {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
-      {isCaptureUiVisible && isSelectionVisible && (
-        <SelectionOverlay
-          region={region}
-          onPointerDown={onSelectionPointerDown}
+      {isCaptureUiVisible && isDragCaptureActive && (
+        <DragCaptureOverlay
+          onCancel={cancelDragCapture}
+          onCapture={handleDragCapture}
+        />
+      )}
+
+      {isCaptureUiVisible && pendingCaptureRegion && !isDragCaptureActive && (
+        <CaptureConfirmOverlay
+          region={pendingCaptureRegion}
+          onCancel={cancelPendingCapture}
         />
       )}
 
       {isCaptureUiVisible && (
         <Toolbar
           toolbarRef={toolbarRef}
-          isSelectionVisible={isSelectionVisible}
+          isCaptureModeActive={isDragCaptureActive}
+          hasPendingCaptureConfirm={hasPendingCaptureConfirm}
           isLoading={isLoading}
           isCancelling={isCancelling}
           hasUnreadAnnouncement={hasUnreadAnnouncement}
           toolbarPosition={toolbarPosition}
-          onToggleSelection={() => setIsSelectionVisible((visible) => !visible)}
-          onExplain={() => void runExplain()}
+          onStartCapture={startDragCapture}
+          onCancelCapture={cancelDragCapture}
+          onConfirmCapture={confirmPendingCapture}
           onCancel={cancelCurrentRequest}
           onToggleResult={() => setIsResultOpen((open) => !open)}
           onToggleAnnouncement={toggleAnnouncementPanel}

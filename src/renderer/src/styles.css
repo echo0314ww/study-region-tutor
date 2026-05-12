@@ -137,6 +137,82 @@ textarea {
   cursor: nesw-resize;
 }
 
+.drag-capture-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  cursor: crosshair;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.capture-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  cursor: default;
+  pointer-events: auto;
+}
+
+.drag-capture-backdrop,
+.drag-capture-shade {
+  position: absolute;
+  background: rgba(11, 16, 14, 0.24);
+  pointer-events: none;
+}
+
+.drag-capture-backdrop {
+  inset: 0;
+}
+
+.drag-capture-shade.top {
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.drag-capture-shade.left {
+  left: 0;
+}
+
+.drag-capture-shade.right {
+  right: 0;
+}
+
+.drag-capture-shade.bottom {
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+.drag-capture-selection {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 2px solid #30d082;
+  background: rgba(48, 208, 130, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.68) inset,
+    0 10px 40px rgba(4, 16, 10, 0.18);
+  pointer-events: none;
+}
+
+.capture-confirm-selection {
+  pointer-events: none;
+}
+
+.drag-capture-label {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(12, 18, 16, 0.72);
+  color: #f4fff8;
+  font-size: 12px;
+  line-height: 1;
+}
+
 .toolbar {
   position: absolute;
   z-index: 20;
@@ -565,12 +641,40 @@ button:disabled {
   margin-top: 12px;
 }
 
-.conversation-list {
+.conversation-shell {
   flex: 1 1 auto;
+  position: relative;
   min-height: 0;
+}
+
+.conversation-list {
+  height: 100%;
   overflow: auto;
   padding: 12px 14px;
   user-select: text;
+}
+
+.scroll-bottom-button {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2;
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(20, 31, 25, 0.12);
+  border-radius: 8px;
+  background: rgba(252, 255, 253, 0.94);
+  box-shadow: 0 10px 28px rgba(5, 16, 10, 0.2);
+  color: #17241d;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+}
+
+.scroll-bottom-button:hover {
+  background: #e4f3e9;
 }
 
 .conversation-turn {
@@ -592,8 +696,9 @@ button:disabled {
 }
 
 .conversation-turn.user {
-  padding-left: 10px;
-  border-left: 3px solid #a9dbc0;
+  display: grid;
+  justify-items: end;
+  border-bottom: 0;
 }
 
 .conversation-turn.assistant {
@@ -607,11 +712,20 @@ button:disabled {
 }
 
 .user-message {
+  max-width: min(76%, 560px);
   margin: 0;
+  padding: 9px 11px;
+  border: 1px solid #cfe3d7;
+  border-radius: 8px;
+  background: #edf7f1;
   color: #203026;
   font-size: 14px;
   line-height: 1.55;
   white-space: pre-wrap;
+}
+
+.conversation-turn.user .conversation-role {
+  text-align: right;
 }
 
 .ocr-preview {

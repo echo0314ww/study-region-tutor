@@ -12,7 +12,7 @@
 
 ## 当前版本与发布
 
-- 当前版本：`1.0.2`。
+- 当前版本：`1.0.3`。
 - GitHub 仓库：`echo0314ww/study-region-tutor`。
 - Windows 发布通过 GitHub Actions 完成，不使用 Personal Access Token。
 - 发布工作流使用仓库自带 `GITHUB_TOKEN`；`GH_TOKEN` 只作为 electron-builder 兼容变量指向同一个仓库 token。
@@ -56,6 +56,7 @@ node --check scripts/sync-release-notes.mjs
 - `RELEASE_NOTES.md`：给普通用户看的简短版本说明，会同步到 GitHub Releases。
 - `PROJECT_CONTEXT.md`：给下一次 Codex 对话恢复上下文用。
 - `scripts/read-utf8.ps1`：Windows PowerShell 下按 UTF-8 读取中文文档，避免默认编码导致乱码。
+- 每次完成功能改进、体验优化、升级或扩展后，都要同步更新相关文档；至少检查 `CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md` 和 `PROJECT_CONTEXT.md` 是否需要记录本次变化。若变化涉及版本公告或发布，还要同步 `announcements/releases.json`。
 
 Windows PowerShell 查看中文文档时，优先使用：
 
@@ -141,14 +142,19 @@ npm run ngrok:dev
 ## UI 当前约定
 
 - 应用启动后默认只显示顶部工具栏。
-- 顶部工具栏包含截图、识别并讲解、对话、公告、设置、退出应用等入口。
+- 顶部工具栏包含截图、对话、公告、设置、退出应用等入口；识别或追问进行中会显示识别状态和停止按钮。
 - 顶部工具栏可通过左侧拖动手柄移动；设置面板可通过标题栏拖动。位置只在本次运行期间保留，不写入本地存储。
 - 渲染层已按职责拆分：`App.tsx` 保留主流程编排，面板 UI 放在 `src/renderer/src/components/`，公告连接状态在 `useAnnouncements`，鼠标穿透/拖动逻辑在 `usePointerInteractions`。
-- 点击截图按钮后显示可拖动、可缩放的截图框。
-- 识别和讲解过程中隐藏截图框。
+- 点击截图按钮后进入拖拽截图模式：显示全屏十字光标覆盖层，按住拖拽框选题目，松开后先进入待确认状态；工具栏显示“确认识别”和“重选截图”，点击“确认识别”后才调用识别/讲解。
+- 拖拽中单击、右键或 Esc 取消本次截图；待确认状态下右键或 Esc 取消。
+- 确认识别后隐藏拖拽截图层并显示结果窗口。
+- 点击“截图下一题”或“结束本题”后，会结束/清空当前题目会话、隐藏结果窗口并进入拖拽截图模式；下一题框选并确认识别后，结果窗口再重新显示。
 - 本地 OCR 模式和图片接口失败后的 OCR 兜底都会先进入“可编辑 OCR 结果确认”状态；用户点击“发送讲解”前，不会把 OCR 文本发送给第三方 API，也不会创建题目会话。
-- 结果窗口、设置窗口和顶部工具栏外的透明区域应尽量点击穿透，不阻挡底层网页或桌面。
+- 流式回答一旦出现正文，就要立即隐藏结果窗口里的可见处理过程；`latestProgressTextRef` 仍保留最近处理过程，失败时可拼到错误信息里用于排查。
+- 结果窗口、设置窗口和顶部工具栏外的透明区域应尽量点击穿透，不阻挡底层网页或桌面；启动、窗口聚焦和页面恢复可见时要主动同步鼠标穿透状态，避免必须先点工具栏一次。
 - 结果窗口支持拖动和调整大小。
+- 结果内容可滚动且当前不在底部时，右下角显示“跳到底部”按钮，点击后直接滚到回答末尾；到达底部后按钮隐藏。
+- 本题追问历史中，用户消息右对齐并使用轻量气泡样式；助手讲解保持左侧文档式排版，不压缩长答案阅读宽度。
 - 结果窗口使用 KaTeX 渲染标准 LaTeX；提示词要求模型直接用 `\(...\)` / `\[...\]` 输出公式，不再写“补充 LaTeX:”或扁平公式文本。独占一行的行内公式会提升为块级显示，紧邻 LaTeX 的重复扁平公式会被隐藏；`x²/16 + y²/12 = 1`、`4√7/7` 等常见扁平公式会尽量转换成 LaTeX 后渲染；渲染失败时才退回普通可读文本。
 - 设置面板不再展示不必要的 API Base URL 和 API Key 明细。
 - 高级设置中代理验证提示文案当前要求：
@@ -166,9 +172,11 @@ npm run ngrok:dev
 ## 当前本地状态提醒
 
 - `v1.0.2` 发布内容：OCR 结果确认页、图片失败后的 OCR 确认兜底、KaTeX 公式渲染、扁平公式转 LaTeX、提示词公式输出约束、工具栏/设置面板拖动、开发标签页脚本，以及 `App.tsx` 渲染层拆分。
-- `announcements/releases.json` 当前可见版本公告为 `release-v1.0.2`。
-- `v1.0.2` 发布材料已同步到 `package.json`、`package-lock.json`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`PROJECT_CONTEXT.md` 和版本公告。
-- 推送 tag `v1.0.2` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
+- `v1.0.3` 发布内容：顶部“截图”改为拖拽截图模式，拖拽完成后先待确认，点击“确认识别”后才提交识别；点击“截图下一题”或“结束本题”后隐藏结果窗口并进入截图模式，下一题确认识别后再显示结果窗口；启动/聚焦/恢复可见时主动同步鼠标穿透状态；流式回答正文出现后立即隐藏可见处理过程；长回答支持一键跳到底部；用户追问右对齐显示。
+- 已新增文档维护约定：以后每次完成功能改进、体验优化、升级或扩展后，都要同步检查并更新相关文档。
+- `announcements/releases.json` 当前可见版本公告为 `release-v1.0.3`。
+- `v1.0.3` 发布材料已同步到 `package.json`、`package-lock.json`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`PROJECT_CONTEXT.md` 和版本公告。
+- 推送 tag `v1.0.3` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
 - 发布完成后仍需同步本地 `release/` 文件夹，确认 `release/latest.yml` 和安装包都指向当前最新版本。
 - 不要把 `.env.local`、API Key、代理 Token、ngrok Token 提交到仓库。
 

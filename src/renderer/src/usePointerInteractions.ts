@@ -64,14 +64,38 @@ export function usePointerInteractions({
   const lastPointerPositionRef = useRef<{ x: number; y: number } | null>(null);
   const isMousePassthroughRef = useRef(false);
 
-  const setMousePassthrough = useCallback((ignored: boolean): void => {
-    if (isMousePassthroughRef.current === ignored) {
+  const setMousePassthrough = useCallback((ignored: boolean, force = false): void => {
+    if (!force && isMousePassthroughRef.current === ignored) {
       return;
     }
 
     isMousePassthroughRef.current = ignored;
-    void window.studyTutor.setMousePassthrough(ignored).catch(() => undefined);
+    void window.studyTutor.setMousePassthrough(ignored).catch(() => {
+      if (isMousePassthroughRef.current === ignored) {
+        isMousePassthroughRef.current = !ignored;
+      }
+    });
   }, []);
+
+  const syncMousePassthrough = useCallback(
+    (force = false): void => {
+      if (!floatingPassthroughMode || dragRef.current || resultPanelDragRef.current || floatingDragRef.current) {
+        setMousePassthrough(false, force);
+        return;
+      }
+
+      const lastPosition = lastPointerPositionRef.current;
+
+      if (!lastPosition) {
+        setMousePassthrough(true, force);
+        return;
+      }
+
+      const element = document.elementFromPoint(lastPosition.x, lastPosition.y);
+      setMousePassthrough(!isInteractiveElement(element), force);
+    },
+    [floatingPassthroughMode, setMousePassthrough]
+  );
 
   const updateMousePassthrough = useCallback(
     (clientX: number, clientY: number, target?: EventTarget | null): void => {
@@ -101,21 +125,8 @@ export function usePointerInteractions({
   }, [floatingPassthroughMode, setMousePassthrough]);
 
   useEffect(() => {
-    if (!floatingPassthroughMode) {
-      setMousePassthrough(false);
-      return;
-    }
-
-    const lastPosition = lastPointerPositionRef.current;
-
-    if (!lastPosition) {
-      setMousePassthrough(true);
-      return;
-    }
-
-    updateMousePassthrough(lastPosition.x, lastPosition.y);
+    syncMousePassthrough();
   }, [
-    floatingPassthroughMode,
     isAnnouncementOpen,
     isResultOpen,
     isSettingsOpen,
@@ -125,11 +136,35 @@ export function usePointerInteractions({
     resultPanel.y,
     settingsPanelPosition?.x,
     settingsPanelPosition?.y,
-    setMousePassthrough,
+    syncMousePassthrough,
     toolbarPosition?.x,
-    toolbarPosition?.y,
-    updateMousePassthrough
+    toolbarPosition?.y
   ]);
+
+  useEffect(() => {
+    syncMousePassthrough(true);
+
+    const timers = [50, 250, 1000].map((delay) =>
+      window.setTimeout(() => {
+        syncMousePassthrough(true);
+      }, delay)
+    );
+    const onFocus = (): void => syncMousePassthrough(true);
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === 'visible') {
+        syncMousePassthrough(true);
+      }
+    };
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [syncMousePassthrough]);
 
   useEffect(() => {
     const onMouseMove = (event: MouseEvent): void => {

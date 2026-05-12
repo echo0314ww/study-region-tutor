@@ -1,6 +1,6 @@
 import {
   Bell,
-  BookOpen,
+  Check,
   GripVertical,
   Loader2,
   MessageSquareText,
@@ -15,13 +15,15 @@ import type { FloatingPosition } from '../uiTypes';
 
 export interface ToolbarProps {
   toolbarRef: RefObject<HTMLElement | null>;
-  isSelectionVisible: boolean;
+  isCaptureModeActive: boolean;
+  hasPendingCaptureConfirm: boolean;
   isLoading: boolean;
   isCancelling: boolean;
   hasUnreadAnnouncement: boolean;
   toolbarPosition: FloatingPosition | null;
-  onToggleSelection: () => void;
-  onExplain: () => void;
+  onStartCapture: () => void;
+  onCancelCapture: () => void;
+  onConfirmCapture: () => void;
   onCancel: () => void;
   onToggleResult: () => void;
   onToggleAnnouncement: () => void;
@@ -34,13 +36,15 @@ export interface ToolbarProps {
 
 export function Toolbar({
   toolbarRef,
-  isSelectionVisible,
+  isCaptureModeActive,
+  hasPendingCaptureConfirm,
   isLoading,
   isCancelling,
   hasUnreadAnnouncement,
   toolbarPosition,
-  onToggleSelection,
-  onExplain,
+  onStartCapture,
+  onCancelCapture,
+  onConfirmCapture,
   onCancel,
   onToggleResult,
   onToggleAnnouncement,
@@ -80,21 +84,24 @@ export function Toolbar({
       <button
         className="secondary-button"
         type="button"
-        onClick={onToggleSelection}
+        onClick={isCaptureModeActive ? onCancelCapture : onStartCapture}
         disabled={isLoading}
       >
         <ScanLine size={18} />
-        {isSelectionVisible ? '隐藏截图' : '截图'}
+        {isCaptureModeActive ? '取消截图' : hasPendingCaptureConfirm ? '重选截图' : '截图'}
       </button>
-      <button
-        className="primary-button"
-        type="button"
-        onClick={onExplain}
-        disabled={isLoading || !isSelectionVisible}
-      >
-        {isLoading ? <Loader2 size={18} className="spin" /> : <BookOpen size={18} />}
-        {isLoading ? '识别中' : '识别并讲解'}
-      </button>
+      {hasPendingCaptureConfirm && !isLoading && (
+        <button className="primary-button" type="button" onClick={onConfirmCapture}>
+          <Check size={18} />
+          确认识别
+        </button>
+      )}
+      {isLoading && (
+        <button className="primary-button" type="button" disabled>
+          <Loader2 size={18} className="spin" />
+          识别中
+        </button>
+      )}
       {isLoading && (
         <button className="secondary-button" type="button" onClick={onCancel} disabled={isCancelling}>
           <X size={18} />

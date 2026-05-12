@@ -1,6 +1,6 @@
 {
   "name": "study-region-tutor",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A cross-platform desktop study assistant that explains selected screen regions.",
   "main": "out/main/index.js",
   "author": "",
