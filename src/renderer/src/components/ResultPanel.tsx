@@ -1,4 +1,4 @@
-import { AlertCircle, BookOpen, Check, Loader2, RefreshCw, X } from 'lucide-react';
+import { AlertCircle, BookOpen, Check, Clipboard, Download, Loader2, RefreshCw, X } from 'lucide-react';
 import type { PointerEvent } from 'react';
 import { useMemo } from 'react';
 import type { OcrPreviewResult, RegionBounds } from '../../../shared/types';
@@ -22,6 +22,8 @@ export interface ResultPanelProps {
   followUpText: string;
   activeSessionId: string;
   canRetry: boolean;
+  canExport: boolean;
+  exportStatus: string;
   onClose: () => void;
   onPanelPointerDown: (event: PointerEvent, mode: DragMode) => void;
   onFollowUpTextChange: (text: string) => void;
@@ -32,6 +34,8 @@ export interface ResultPanelProps {
   onStartNextQuestion: () => void;
   onEndCurrentQuestion: () => void;
   onRetry: () => void;
+  onCopyMarkdown: () => void;
+  onExportMarkdown: () => void;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
 }
@@ -49,6 +53,8 @@ export function ResultPanel({
   followUpText,
   activeSessionId,
   canRetry,
+  canExport,
+  exportStatus,
   onClose,
   onPanelPointerDown,
   onFollowUpTextChange,
@@ -59,6 +65,8 @@ export function ResultPanel({
   onStartNextQuestion,
   onEndCurrentQuestion,
   onRetry,
+  onCopyMarkdown,
+  onExportMarkdown,
   onPointerEnter,
   onPointerLeave
 }: ResultPanelProps): JSX.Element {
@@ -135,6 +143,21 @@ export function ResultPanel({
           progressText={progressText}
           isLoading={isLoading}
         />
+      )}
+      {!ocrPreview && !isLoading && !error && canExport && (
+        <div className="result-export-bar">
+          <div>
+            <button className="secondary-button" type="button" onClick={onCopyMarkdown}>
+              <Clipboard size={16} />
+              复制 Markdown
+            </button>
+            <button className="secondary-button" type="button" onClick={onExportMarkdown}>
+              <Download size={16} />
+              导出 Markdown
+            </button>
+          </div>
+          {exportStatus && <span>{exportStatus}</span>}
+        </div>
       )}
       {!ocrPreview && isLoading && !progressText && conversationTurns.length === 0 && <div className="empty-state">正在分析截图...</div>}
       {!ocrPreview && !isLoading && !error && stoppedMessage && <div className="empty-state">{stoppedMessage}</div>}

@@ -1,0 +1,78 @@
+# Codex Handoff Guide
+
+这份文档给以后任何新账号、新对话或新 Codex 会话接手项目时使用。目标是让开发过程持续遵守同一套工程、文档和发布规范。
+
+## 新对话启动顺序
+
+1. 先读 `PROJECT_CONTEXT.md`，恢复当前版本、未发布改动、发布方式和项目约定。
+2. 再读 `docs/architecture.md`，确认模块边界、核心流程、IPC 边界和安全约定。
+3. 再读 `docs/release-checklist.md`，确认本次改动后需要更新哪些文档和验证哪些命令。
+4. 查看最近的 `docs/dev-log/YYYY-MM-DD.md`，了解最近一次重要实施过程。
+5. 运行或查看 `git status --short --branch`，确认当前工作区已有改动；不要回滚不是自己写的改动。
+
+Windows PowerShell 查看中文文档时，优先使用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 PROJECT_CONTEXT.md
+```
+
+## 开发原则
+
+- 不读取、提交或复制 `.env.local`、API Key、代理 Token、ngrok Token、GitHub token。
+- 不实现隐藏窗口、绕过监控、自动提交答案、自动点击网页或规避检测等考试作弊能力。
+- 先按现有目录职责找代码，不随意新建平行结构。
+- 保持 `.editorconfig` 和 `.gitattributes` 的编码、缩进和换行符约定，避免跨环境产生无意义 diff。
+- 涉及主进程能力时，保持 `src/shared/ipc.ts`、`src/preload/index.ts`、主进程 handler 和渲染层调用同步。
+- 涉及用户可见功能时，同步考虑设置页、一键诊断、错误提示、导出内容和文档说明。
+- 涉及代理服务时，保持 Token 脱敏、API Key 不下发、公开接口不需要 Token、API 代理接口需要 Token。
+
+## 文档更新矩阵
+
+- 用户使用、配置、排障、代理、ngrok、公告、发布方式变化：更新 `README.md`。
+- 功能、修复、内部维护变化：更新 `CHANGELOG.md` 的 `Unreleased`。
+- 普通用户需要知道的变化：更新 `RELEASE_NOTES.md` 的 `Unreleased`。
+- 新对话必须知道的状态、约定、未发布改动：更新 `PROJECT_CONTEXT.md`。
+- 架构边界、目录职责、IPC 或核心流程变化：更新 `docs/architecture.md`。
+- 发布流程或验证命令变化：更新 `docs/release-checklist.md`。
+- 重要实施过程、设计取舍或排障记录：新增或更新 `docs/dev-log/YYYY-MM-DD.md`。
+- 版本公告或正式发版：更新 `announcements/releases.json`。
+
+改动完成后至少运行：
+
+```bash
+npm run docs:check
+```
+
+代码改动完成后优先运行：
+
+```bash
+npm run validate
+```
+
+当前 Windows Codex 环境中，`npm run test`、`npm run build`、`npm run validate` 偶尔会因为 esbuild `spawn EPERM` 失败；这属于环境权限问题，提升权限重跑通常可以通过。
+
+## GitHub Actions 发布约定
+
+Windows 正式发布统一走 GitHub Actions，不在本机手动发布 GitHub Release。
+
+- 发布工作流：`.github/workflows/release-windows.yml`。
+- 触发方式：推送 `vX.Y.Z` tag，或手动 `workflow_dispatch`。
+- 权限：使用仓库自带 `GITHUB_TOKEN`，并把 `GH_TOKEN` 指向同一个 token 供 electron-builder 使用。
+- 构建命令：工作流执行 `npm ci`、`npm run docs:check`、`npm run typecheck`、`npm run lint`、`npm run test`、`npm run publish:win`。
+- Release 说明：tag 发布后，工作流运行 `scripts/sync-release-notes.mjs --tag <tag>`，从 `RELEASE_NOTES.md` 同步对应版本到 GitHub Release body。
+- 已有 Release 说明同步：`.github/workflows/sync-release-notes.yml` 会在 `RELEASE_NOTES.md` 或同步脚本变化后更新已有 Release。
+
+发布前必须确认：
+
+- `package.json` 和 `package-lock.json` 版本一致。
+- `CHANGELOG.md`、`RELEASE_NOTES.md`、`PROJECT_CONTEXT.md` 已更新到当前版本或 Unreleased 状态。
+- `announcements/releases.json` 中有 `release-vX.Y.Z`，并放入 `allAnnouncement`。
+- `npm run docs:check` 通过。
+
+GitHub Actions 发布成功后，再在本机运行：
+
+```bash
+npm run dist
+```
+
+然后确认本地 `release/` 只保留最新安装包、`.blockmap`、`latest.yml` 和 `win-unpacked`。

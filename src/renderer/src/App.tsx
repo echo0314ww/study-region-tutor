@@ -3,6 +3,8 @@ import type {
   ApiConnectionMode,
   ApiProviderOption,
   ApiRuntimeDefaults,
+  DiagnosticResult,
+  ExportConversationRequest,
   ModelOption,
   OcrPreviewResult,
   RegionBounds,
@@ -11,6 +13,7 @@ import type {
 } from '../../shared/types';
 import type {
   FloatingPosition,
+  GuideKind,
   ProxyHealthStatus,
   SettingsView,
   UiConversationTurn
@@ -19,8 +22,11 @@ import {
   BUILT_IN_PROXY_URL,
   DEFAULT_REGION,
   DEFAULT_SETTINGS,
-  PROXY_TOKEN_INVALID_MESSAGE
+  PRODUCT_GUIDE_SEEN_VERSION_KEY,
+  PROXY_TOKEN_INVALID_MESSAGE,
+  RELEASE_GUIDE_SEEN_VERSION_KEY
 } from './constants';
+import { buildConversationMarkdown } from '../../shared/exportConversation';
 import {
   clampRegion,
   clampResultPanel,
@@ -41,6 +47,8 @@ import { Toolbar } from './components/Toolbar';
 import { AnnouncementPanel } from './components/AnnouncementPanel';
 import { ResultPanel } from './components/ResultPanel';
 import { SettingsPanel } from './components/SettingsPanel';
+import { GuidePanel } from './components/GuidePanel';
+import { guideDefinition, hasGuideContent } from './guides';
 
 export function App(): JSX.Element {
   const [region, setRegion] = useState(() => clampRegion(DEFAULT_REGION));
@@ -74,6 +82,11 @@ export function App(): JSX.Element {
   const [proxyHealthStatus, setProxyHealthStatus] = useState<ProxyHealthStatus>('idle');
   const [proxyHealthMessage, setProxyHealthMessage] = useState('');
   const [appVersion, setAppVersion] = useState('');
+  const [activeGuideKind, setActiveGuideKind] = useState<GuideKind | null>(null);
+  const [diagnosticResult, setDiagnosticResult] = useState<DiagnosticResult | null>(null);
+  const [diagnosticError, setDiagnosticError] = useState('');
+  const [isDiagnosticsRunning, setIsDiagnosticsRunning] = useState(false);
+  const [exportStatus, setExportStatus] = useState('');
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusEvent>({
     status: 'idle',
     message: '尚未检查更新。'
@@ -312,6 +325,103 @@ export function App(): JSX.Element {
     [currentProxyUrl]
   );
 
+  const activeGuide = activeGuideKind ? guideDefinition(activeGuideKind, appVersion || 'dev') : null;
+
+  const markGuideSeen = useCallback(
+    (kind: GuideKind): void => {
+      if (appVersion) {
+        const key = kind === 'product' ? PRODUCT_GUIDE_SEEN_VERSION_KEY : RELEASE_GUIDE_SEEN_VERSION_KEY;
+        try {
+          localStorage.setItem(key, appVersion);
+        } catch {
+          // Local storage can be unavailable in hardened environments; closing the guide still works.
+        }
+      }
+
+      setActiveGuideKind(null);
+    },
+    [appVersion]
+  );
+
+  const openGuide = useCallback((kind: GuideKind): void => {
+    setActiveGuideKind(kind);
+  }, []);
+
+  const copyTextToClipboard = useCallback((text: string): void => {
+    if (!navigator.clipboard?.writeText) {
+      setExportStatus('当前系统剪贴板不可用，请使用导出 Markdown。');
+      return;
+    }
+
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => setExportStatus('已复制到剪贴板。'))
+      .catch((caught) => {
+        setExportStatus(caught instanceof Error ? caught.message : String(caught));
+      });
+  }, []);
+
+  const runSettingsDiagnostics = useCallback(async (): Promise<void> => {
+    setIsDiagnosticsRunning(true);
+    setDiagnosticError('');
+    setDiagnosticResult(null);
+
+    try {
+      const response = await window.studyTutor.runDiagnostics({
+        settings: settingsWithEffectiveProxyUrl(settings),
+        appVersion,
+        deepCheck: false
+      });
+      setDiagnosticResult(response);
+    } catch (caught) {
+      setDiagnosticError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setIsDiagnosticsRunning(false);
+    }
+  }, [appVersion, settings]);
+
+  const buildExportRequest = useCallback((): ExportConversationRequest => {
+    return {
+      appVersion,
+      exportedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+      model: settings.model.trim(),
+      language: settings.language,
+      inputMode: settings.inputMode,
+      reasoningOnly: settings.reasoningOnly,
+      turns: conversationTurns
+        .map((turn) => ({ role: turn.role, content: turn.content }))
+        .filter((turn) => turn.content.trim())
+    };
+  }, [appVersion, conversationTurns, settings.inputMode, settings.language, settings.model, settings.reasoningOnly]);
+
+  const canExportConversation = conversationTurns.some((turn) => turn.content.trim());
+
+  const copyConversationMarkdown = useCallback((): void => {
+    if (!canExportConversation) {
+      return;
+    }
+
+    copyTextToClipboard(buildConversationMarkdown(buildExportRequest()));
+  }, [buildExportRequest, canExportConversation, copyTextToClipboard]);
+
+  const exportConversationMarkdown = useCallback(async (): Promise<void> => {
+    if (!canExportConversation) {
+      return;
+    }
+
+    setExportStatus('');
+
+    try {
+      const response = await window.studyTutor.exportConversation(buildExportRequest());
+
+      if (!response.canceled) {
+        setExportStatus(response.filePath ? `已导出：${response.filePath}` : '已导出 Markdown。');
+      }
+    } catch (caught) {
+      setExportStatus(caught instanceof Error ? caught.message : String(caught));
+    }
+  }, [buildExportRequest, canExportConversation]);
+
   const appendAnswerDelta = useCallback((text: string, reset = false): void => {
     if (reset) {
       const previousTurnId = streamingAssistantTurnIdRef.current;
@@ -456,6 +566,29 @@ export function App(): JSX.Element {
   }, [appendAnswerDelta, hideProgressWhenAnswerStarts, loadModels, refreshApiProviders]);
 
   useEffect(() => {
+    if (!appVersion || activeGuideKind) {
+      return;
+    }
+
+    try {
+      const productSeenVersion = localStorage.getItem(PRODUCT_GUIDE_SEEN_VERSION_KEY);
+
+      if (productSeenVersion !== appVersion) {
+        setActiveGuideKind('product');
+        return;
+      }
+
+      const releaseSeenVersion = localStorage.getItem(RELEASE_GUIDE_SEEN_VERSION_KEY);
+
+      if (releaseSeenVersion !== appVersion && hasGuideContent('release', appVersion)) {
+        setActiveGuideKind('release');
+      }
+    } catch {
+      setActiveGuideKind('product');
+    }
+  }, [activeGuideKind, appVersion]);
+
+  useEffect(() => {
     if (!isSettingsOpen || !isProxyConnection || settingsView !== 'normal') {
       proxyHealthRequestIdRef.current += 1;
       return;
@@ -503,6 +636,7 @@ export function App(): JSX.Element {
       setPendingCaptureRegion(null);
       setStoppedMessage('');
       setError('');
+      setExportStatus('');
       setOcrPreview(null);
       setResult('');
       setConversationTurns([]);
@@ -632,6 +766,7 @@ export function App(): JSX.Element {
     setIsCancelling(false);
     setStoppedMessage('');
     setError('');
+    setExportStatus('');
     setOcrPreview(null);
     setResult('');
     setConversationTurns([]);
@@ -771,6 +906,7 @@ export function App(): JSX.Element {
     setIsCancelling(false);
     setStoppedMessage('');
     setError('');
+    setExportStatus('');
     setProgressText('');
     setFollowUpText('');
     setIsResultOpen(true);
@@ -1070,6 +1206,17 @@ export function App(): JSX.Element {
         />
       )}
 
+      {isCaptureUiVisible && activeGuide && (
+        <GuidePanel
+          guide={activeGuide}
+          onSwitchGuide={openGuide}
+          onDismiss={markGuideSeen}
+          onClose={() => markGuideSeen(activeGuide.kind)}
+          onPointerEnter={enterInteractiveSurface}
+          onPointerLeave={leaveInteractiveSurface}
+        />
+      )}
+
       {isCaptureUiVisible && isAnnouncementOpen && (
         <AnnouncementPanel
           announcements={announcements}
@@ -1098,6 +1245,8 @@ export function App(): JSX.Element {
           followUpText={followUpText}
           activeSessionId={activeSessionId}
           canRetry={canRetry}
+          canExport={canExportConversation}
+          exportStatus={exportStatus}
           onClose={() => setIsResultOpen(false)}
           onPanelPointerDown={onResultPanelPointerDown}
           onFollowUpTextChange={setFollowUpText}
@@ -1108,6 +1257,8 @@ export function App(): JSX.Element {
           onStartNextQuestion={() => void startNextQuestion()}
           onEndCurrentQuestion={() => void endCurrentQuestion()}
           onRetry={retry}
+          onCopyMarkdown={copyConversationMarkdown}
+          onExportMarkdown={() => void exportConversationMarkdown()}
           onPointerEnter={enterInteractiveSurface}
           onPointerLeave={leaveInteractiveSurface}
         />
@@ -1128,6 +1279,9 @@ export function App(): JSX.Element {
           proxyHealthMessage={proxyHealthMessage}
           appVersion={appVersion}
           updateStatus={updateStatus}
+          diagnosticResult={diagnosticResult}
+          diagnosticError={diagnosticError}
+          isDiagnosticsRunning={isDiagnosticsRunning}
           settingsPanelPosition={settingsPanelPosition}
           onSettingsChange={setSettings}
           onSettingsViewChange={setSettingsView}
@@ -1140,6 +1294,9 @@ export function App(): JSX.Element {
           onRefreshApiProviders={() => void refreshApiProviders(settings)}
           onLoadModels={() => void loadModels(settings)}
           onValidateProxyConnection={() => void validateProxyConnection()}
+          onRunDiagnostics={() => void runSettingsDiagnostics()}
+          onCopyDiagnosticReport={copyTextToClipboard}
+          onOpenGuide={openGuide}
           onDragPointerDown={(event) => onFloatingPointerDown(event, 'settings')}
           onPointerEnter={enterInteractiveSurface}
           onPointerLeave={leaveInteractiveSurface}

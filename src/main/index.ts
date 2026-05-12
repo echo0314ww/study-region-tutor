@@ -9,6 +9,8 @@ import type {
   ApiRuntimeDefaults,
   CancelRequest,
   EndQuestionSessionRequest,
+  ExportConversationRequest,
+  ExportConversationResult,
   ExplainRecognizedTextRequest,
   ExplainRequest,
   ExplainRegionResult,
@@ -21,6 +23,7 @@ import type {
   OcrPreviewResult,
   RecognizeRegionRequest,
   RegionBounds,
+  RunDiagnosticsRequest,
   TutorSettings,
   UpdateStatusEvent
 } from '../shared/types';
@@ -59,6 +62,8 @@ import {
   proxyListAvailableModels
 } from './proxyClient';
 import { clearSavedProxyToken, hasSavedProxyToken, saveProxyToken } from './proxyTokenStore';
+import { runDiagnostics } from './diagnostics';
+import { exportConversationMarkdown } from './exportConversation';
 
 const { autoUpdater } = electronUpdater;
 
@@ -543,6 +548,17 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.checkProxyHealth, (_event, sourceUrl?: string) => {
     return checkProxyHealth(sourceUrl);
   });
+
+  ipcMain.handle(IPC_CHANNELS.runDiagnostics, (_event, request: RunDiagnosticsRequest) => {
+    return runDiagnostics(request, localEnvPath());
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.exportConversation,
+    (_event, request: ExportConversationRequest): Promise<ExportConversationResult> => {
+      return exportConversationMarkdown(mainWindow, request);
+    }
+  );
 
   ipcMain.handle(IPC_CHANNELS.listModels, (_event, settings: TutorSettings): Promise<ModelListResult> => {
     return isProxyMode(settings) ? proxyListAvailableModels(settings) : listAvailableModels(settings);

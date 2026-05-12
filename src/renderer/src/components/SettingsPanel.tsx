@@ -6,6 +6,7 @@ import type {
   ApiModeSetting,
   ApiProviderOption,
   ApiRuntimeDefaults,
+  DiagnosticResult,
   InputMode,
   ModelOption,
   OcrLanguage,
@@ -14,9 +15,10 @@ import type {
   TutorSettings,
   UpdateStatusEvent
 } from '../../../shared/types';
-import type { FloatingPosition, ProxyHealthStatus, SettingsView } from '../uiTypes';
+import type { FloatingPosition, GuideKind, ProxyHealthStatus, SettingsView } from '../uiTypes';
 import { BUILT_IN_PROXY_URL, CUSTOM_MODEL_VALUE, MODEL_PLACEHOLDER_VALUE } from '../constants';
 import { hasDirectApiConfig } from '../uiUtils';
+import { DiagnosticReport } from './DiagnosticReport';
 
 export interface SettingsPanelProps {
   settingsPanelRef: RefObject<HTMLElement | null>;
@@ -32,6 +34,9 @@ export interface SettingsPanelProps {
   proxyHealthMessage: string;
   appVersion: string;
   updateStatus: UpdateStatusEvent;
+  diagnosticResult: DiagnosticResult | null;
+  diagnosticError: string;
+  isDiagnosticsRunning: boolean;
   settingsPanelPosition: FloatingPosition | null;
   onSettingsChange: (updater: (current: TutorSettings) => TutorSettings) => void;
   onSettingsViewChange: (view: SettingsView) => void;
@@ -44,6 +49,9 @@ export interface SettingsPanelProps {
   onRefreshApiProviders: () => void;
   onLoadModels: () => void;
   onValidateProxyConnection: () => void;
+  onRunDiagnostics: () => void;
+  onCopyDiagnosticReport: (text: string) => void;
+  onOpenGuide: (kind: GuideKind) => void;
   onDragPointerDown: (event: PointerEvent) => void;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
@@ -63,6 +71,9 @@ export function SettingsPanel({
   proxyHealthMessage,
   appVersion,
   updateStatus,
+  diagnosticResult,
+  diagnosticError,
+  isDiagnosticsRunning,
   settingsPanelPosition,
   onSettingsChange,
   onSettingsViewChange,
@@ -75,6 +86,9 @@ export function SettingsPanel({
   onRefreshApiProviders,
   onLoadModels,
   onValidateProxyConnection,
+  onRunDiagnostics,
+  onCopyDiagnosticReport,
+  onOpenGuide,
   onDragPointerDown,
   onPointerEnter,
   onPointerLeave
@@ -260,6 +274,14 @@ export function SettingsPanel({
         </div>
       ) : (
         <>
+          <div className="settings-guide-row">
+            <button className="secondary-button" type="button" onClick={() => onOpenGuide('product')}>
+              整体功能向导
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onOpenGuide('release')}>
+              本版本新增向导
+            </button>
+          </div>
           <div className="update-box">
             <div>
               <strong>应用更新</strong>
@@ -293,6 +315,25 @@ export function SettingsPanel({
                 </button>
               )}
             </div>
+          </div>
+          <div className="diagnostic-box">
+            <div className="diagnostic-box-header">
+              <div>
+                <strong>一键诊断</strong>
+                <span>检查配置、代理、Token、服务商、模型列表和当前模型，并给出修复建议。</span>
+              </div>
+              <button className="secondary-button" type="button" onClick={onRunDiagnostics} disabled={isDiagnosticsRunning}>
+                {isDiagnosticsRunning ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+                {isDiagnosticsRunning ? '诊断中' : '开始诊断'}
+              </button>
+            </div>
+            {diagnosticError && <div className="proxy-validation-result danger">{diagnosticError}</div>}
+            {diagnosticResult && (
+              <DiagnosticReport
+                result={diagnosticResult}
+                onCopy={onCopyDiagnosticReport}
+              />
+            )}
           </div>
           <label>
             API 连接模式

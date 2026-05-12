@@ -1,0 +1,93 @@
+# Architecture
+
+本文档记录 Study Region Tutor 的当前架构边界，面向维护者和后续开发者。普通用户的安装、配置和使用说明仍以 `README.md` 为准。
+
+## 项目定位
+
+Study Region Tutor 是 Electron + React + TypeScript 桌面应用，用于学习场景下框选屏幕区域、识别题目并生成学习性讲解。项目不实现隐藏窗口、绕过监控、自动提交答案、自动点击网页或规避检测等能力。
+
+## 目录职责
+
+- `src/main/`：Electron 主进程，负责窗口、截图裁剪、配置读取、API 请求、诊断、导出文件和自动更新。
+- `src/preload/`：安全暴露给渲染层的 IPC API。
+- `src/renderer/`：React 渲染层，负责工具栏、截图状态、结果面板、设置面板、公告、设置向导和用户交互。
+- `src/shared/`：主进程、preload、渲染层共享的类型、IPC 名称和纯函数。
+- `server/`：本地代理、公告服务、API 转发和 ngrok 托管脚本。
+- `announcements/`：版本更新公告和私人公告数据。
+- `tests/`：Vitest 单元测试。
+- `docs/`：架构说明、发布清单和实施记录。
+- `.github/workflows/`：GitHub Actions 工作流，负责 Windows 发布和 Release Notes 同步。
+- `.editorconfig` / `.gitattributes`：约束编辑器格式和 Git 换行符归一化。
+
+## 核心流程
+
+1. 用户点击工具栏 `截图`，渲染层进入拖拽截图模式。
+2. 用户拖出题目区域后，应用先进入待确认状态。
+3. 用户点击 `确认识别` 后，渲染层通过 IPC 请求主进程裁剪屏幕区域。
+4. 主进程按显示器和缩放比例裁剪截图，并返回 PNG data URL。
+5. 默认模式直接把图片发送给当前 OpenAI-compatible 服务商；如果图片接口失败，会退回本地 OCR 预览。
+6. 本地 OCR 模式会先展示可编辑识别文本；用户确认后才发送文本讲解请求。
+7. 讲解成功后创建本题内存会话，后续追问只发送题目上下文、历史问答和新问题，不重新发送截图。
+8. 结果面板可以复制或导出当前题目的 Markdown 学习记录。
+
+## API 连接模式
+
+- 本地直连：打包应用读取 `%APPDATA%\study-region-tutor\.env.local`、同目录 `.env` 或环境变量。开发运行时还会优先读取项目根目录 `.env.local` / `.env`。
+- 代理服务：用户端只保存代理地址和代理 Token，第三方 API Key 留在代理服务所在电脑或服务器。
+
+代理服务公开接口不需要 Token：
+
+- `GET /health`
+- `GET /announcements/latest`
+- `GET /announcements/stream`
+
+API 代理接口需要 Token：
+
+- `GET /providers`
+- `POST /models`
+- `POST /explain/stream`
+- `POST /follow-up/stream`
+
+## IPC 边界
+
+渲染层不直接读取文件系统、环境变量或 API Key。需要主进程能力时，通过 `src/shared/ipc.ts` 中定义的 IPC 通道和 `src/preload/index.ts` 暴露的受控 API 完成。
+
+当前主进程能力包括：
+
+- 截图裁剪与 OCR。
+- API 请求和追问。
+- 设置、服务商、模型列表和连接模式。
+- 一键诊断。
+- Markdown 导出。
+- 自动更新。
+
+## 隐私与安全约定
+
+- 默认只裁剪用户确认后的框选区域，不上传整屏。
+- API Key 只在主进程或代理服务端读取和使用，不回填到设置界面。
+- 代理 Token 可以保存在用户本机，但不会写入导出 Markdown。
+- 诊断报告必须脱敏，不能输出 API Key、代理 Token、ngrok Token 或完整敏感请求头。
+- 文档和公告不得包含真实密钥、Token 或个人账号凭据。
+
+## 发布链路
+
+Windows 正式发布通过 GitHub Actions 完成，不在本机手动发布 GitHub Release。
+
+- `.github/workflows/release-windows.yml`：推送 `vX.Y.Z` tag 或手动 `workflow_dispatch` 时运行，执行依赖安装、文档检查、类型检查、Lint、测试和 `npm run publish:win`。
+- `.github/workflows/sync-release-notes.yml`：当 `RELEASE_NOTES.md`、同步脚本或工作流变化时，把 `RELEASE_NOTES.md` 中的版本说明同步到已有 GitHub Release。
+- `scripts/sync-release-notes.mjs`：从 `RELEASE_NOTES.md` 读取对应 tag 的说明，并写入 GitHub Release body。
+- `npm run dist`：只用于 GitHub Actions 发布成功后同步本地 `release/` 产物。
+
+发布权限使用仓库自带 `GITHUB_TOKEN`；`GH_TOKEN` 只是 electron-builder 的兼容变量，不需要 Personal Access Token。
+
+## 文档地图
+
+- `README.md`：运行、配置、代理、ngrok、公告、验证和发布说明。
+- `CHANGELOG.md`：开发者视角的版本变化。
+- `RELEASE_NOTES.md`：普通用户可读的版本说明，会同步到 GitHub Releases。
+- `PROJECT_CONTEXT.md`：Codex 或维护者在新对话中恢复上下文。
+- `docs/codex-handoff.md`：新账号、新对话或新 Codex 会话接手项目时的启动顺序和协作规范。
+- `docs/architecture.md`：当前架构边界和模块职责。
+- `docs/release-checklist.md`：功能完成和发布前检查清单。
+- `docs/dev-log/YYYY-MM-DD.md`：重要实施过程记录。
+- `announcements/releases.json`：可推送给客户端的版本更新公告。

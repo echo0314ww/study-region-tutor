@@ -8,6 +8,7 @@ export type OcrLanguage = 'chi_sim' | 'eng';
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 export type ReasoningEffortSetting = ReasoningEffort | 'off';
 export type SessionRole = 'user' | 'assistant';
+export type DiagnosticStatus = 'pass' | 'warn' | 'fail';
 export interface RegionBounds {
   x: number;
   y: number;
@@ -52,6 +53,9 @@ export interface ProxyHealthResult {
   ok: boolean;
   sourceUrl: string;
   message: string;
+  tokenCount?: number;
+  rateLimitEnabled?: boolean;
+  providerCount?: number;
 }
 
 export interface ApiProviderOption {
@@ -171,6 +175,45 @@ export interface UpdateStatusEvent {
   message: string;
   version?: string;
   percent?: number;
+}
+
+export interface DiagnosticStep {
+  id: string;
+  title: string;
+  status: DiagnosticStatus;
+  summary: string;
+  cause?: string;
+  solution?: string;
+  technicalDetail?: string;
+}
+
+export interface DiagnosticResult {
+  ok: boolean;
+  mode: ApiConnectionMode;
+  generatedAt: string;
+  appVersion: string;
+  steps: DiagnosticStep[];
+}
+
+export interface RunDiagnosticsRequest {
+  settings: TutorSettings;
+  appVersion: string;
+  deepCheck?: boolean;
+}
+
+export interface ExportConversationRequest {
+  appVersion: string;
+  exportedAt: string;
+  model: string;
+  language: TutorLanguage;
+  inputMode: InputMode;
+  reasoningOnly: boolean;
+  turns: QuestionSessionTurn[];
+}
+
+export interface ExportConversationResult {
+  canceled: boolean;
+  filePath?: string;
 }
 
 export interface DisplayLike {

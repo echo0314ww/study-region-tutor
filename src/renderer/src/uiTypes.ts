@@ -38,4 +38,19 @@ export type UiConversationTurn = QuestionSessionTurn & {
 };
 
 export type ProxyHealthStatus = 'idle' | 'checking' | 'success' | 'error';
-export type SettingsView = 'normal' | 'proxyAdvanced';
+export type SettingsView = 'normal' | 'proxyAdvanced' | 'setupGuide';
+export type GuideKind = 'product' | 'release';
+
+export interface GuideStep {
+  title: string;
+  body: string;
+  action?: string;
+}
+
+export interface GuideDefinition {
+  kind: GuideKind;
+  version: string;
+  title: string;
+  subtitle: string;
+  steps: GuideStep[];
+}

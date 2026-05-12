@@ -6,7 +6,10 @@ import type {
   ApiRuntimeDefaults,
   ApiProviderOption,
   CancelRequest,
+  DiagnosticResult,
   EndQuestionSessionRequest,
+  ExportConversationRequest,
+  ExportConversationResult,
   ExplainRecognizedTextRequest,
   ExplainProgressEvent,
   ExplainRequest,
@@ -19,6 +22,7 @@ import type {
   RecognizeRegionRequest,
   ProxyHealthResult,
   RegionBounds,
+  RunDiagnosticsRequest,
   TutorSettings,
   UpdateStatusEvent
 } from '../shared/types';
@@ -50,8 +54,12 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS.connectAnnouncements, sourceUrl),
   checkProxyHealth: (sourceUrl?: string): Promise<ProxyHealthResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.checkProxyHealth, sourceUrl),
+  runDiagnostics: (request: RunDiagnosticsRequest): Promise<DiagnosticResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.runDiagnostics, request),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC_CHANNELS.getAppVersion),
   quitApp: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.quitApp),
+  exportConversation: (request: ExportConversationRequest): Promise<ExportConversationResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.exportConversation, request),
   saveProxyToken: (token: string): Promise<ApiRuntimeDefaults> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveProxyToken, token),
   clearProxyToken: (): Promise<ApiRuntimeDefaults> => ipcRenderer.invoke(IPC_CHANNELS.clearProxyToken),

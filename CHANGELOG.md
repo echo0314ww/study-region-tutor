@@ -4,6 +4,22 @@
 
 暂无。
 
+## v1.1.0 - 2026-05-12
+
+### 新增
+
+- 设置页新增“一键诊断”，会检查当前连接模式、配置文件、代理地址、代理 Token、API 服务商、模型列表和当前模型，并输出包含失败原因、处理建议和脱敏技术细节的诊断报告。
+- 新增整体功能向导框架：每次应用版本变化后首次打开会显示整体功能向导；设置页顶部可重新打开整体功能向导和本版本新增向导，本版本新增向导接口已预留。
+- 结果面板新增 `复制 Markdown` 和 `导出 Markdown`，可导出当前题目的讲解和追问记录，默认不包含截图、API Key、代理 Token 或代理地址。
+- 代理服务新增具名多 Token 配置和内存级限流，兼容旧版 `TUTOR_PROXY_TOKEN`，并在 `/health` 中返回 Token 数量和是否启用限流。
+
+### 维护
+
+- 新增 `src/main/diagnostics.ts`、`src/main/exportConversation.ts`、`src/shared/exportConversation.ts`、`GuidePanel`、`DiagnosticReport` 和导出格式测试。
+- 新增 `.editorconfig`、`.gitattributes`、`docs/codex-handoff.md`、`docs/architecture.md`、`docs/release-checklist.md`、`scripts/check-docs.mjs` 和 `npm run docs:check`，规范文档结构、Codex 接手流程、换行符归一化和发版前文档检查。
+- `.github/workflows/release-windows.yml` 新增 `npm run docs:check` 步骤，确保 GitHub Actions 发布前检查文档结构、版本说明和版本公告一致性。
+- 将实施记录迁移到 `docs/dev-log/2026-05-12.md`，记录本次一键诊断、设置向导、结果导出、代理多 Token/限流和文档管理规范化过程。
+
 ## v1.0.3 - 2026-05-12
 
 ### 改进

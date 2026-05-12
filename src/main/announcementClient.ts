@@ -130,7 +130,12 @@ export async function checkProxyHealth(sourceUrl?: string): Promise<ProxyHealthR
       }
     });
     const text = await response.text();
-    const envelope = parseEnvelope<{ status?: string }>(text);
+    const envelope = parseEnvelope<{
+      status?: string;
+      tokenCount?: number;
+      rateLimitEnabled?: boolean;
+      providerCount?: number;
+    }>(text);
 
     if (!response.ok || !envelope.ok) {
       throw new Error(envelope.error || `代理服务请求失败 (${response.status})。`);
@@ -139,7 +144,10 @@ export async function checkProxyHealth(sourceUrl?: string): Promise<ProxyHealthR
     return {
       ok: envelope.data?.status === 'ok' || envelope.ok,
       sourceUrl: baseUrl,
-      message: '代理服务连接成功。'
+      message: '代理服务连接成功。',
+      tokenCount: envelope.data?.tokenCount,
+      rateLimitEnabled: envelope.data?.rateLimitEnabled,
+      providerCount: envelope.data?.providerCount
     };
   } catch (error) {
     return {

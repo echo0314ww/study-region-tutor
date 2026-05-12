@@ -12,11 +12,11 @@
 
 ## 当前版本与发布
 
-- 当前版本：`1.0.3`。
+- 当前版本：`1.1.0`。
 - GitHub 仓库：`echo0314ww/study-region-tutor`。
 - Windows 发布通过 GitHub Actions 完成，不使用 Personal Access Token。
 - 发布工作流使用仓库自带 `GITHUB_TOKEN`；`GH_TOKEN` 只作为 electron-builder 兼容变量指向同一个仓库 token。
-- 推送 tag `vX.Y.Z` 会触发 `.github/workflows/release-windows.yml`，构建并发布 Windows 安装包。
+- 推送 tag `vX.Y.Z` 会触发 `.github/workflows/release-windows.yml`，先运行 `npm run docs:check`、类型检查、Lint 和测试，再构建并发布 Windows 安装包。
 - Windows 自动更新只自动检查，不自动下载或安装；发现新版本后设置页显示“立即更新”，用户点击后才下载，下载完成后再点击“重启安装”。
 - Release 页面说明来自 `RELEASE_NOTES.md`。
 - `.github/workflows/release-windows.yml` 在发布完成后会运行 `scripts/sync-release-notes.mjs`，把 `RELEASE_NOTES.md` 中对应 tag 的说明同步到 GitHub Release body。
@@ -37,6 +37,7 @@ npm run dist
 发布前应至少验证：
 
 ```bash
+npm run docs:check
 npm run typecheck
 npm run lint
 npm run test
@@ -55,8 +56,15 @@ node --check scripts/sync-release-notes.mjs
 - `CHANGELOG.md`：给开发者看的详细版本记录。
 - `RELEASE_NOTES.md`：给普通用户看的简短版本说明，会同步到 GitHub Releases。
 - `PROJECT_CONTEXT.md`：给下一次 Codex 对话恢复上下文用。
+- `docs/codex-handoff.md`：给新账号、新对话或新 Codex 会话接手项目时使用；进入项目后应优先阅读。
+- `docs/architecture.md`：给维护者看的架构边界、目录职责、核心流程和文档地图。
+- `docs/release-checklist.md`：功能完成和发布前的检查清单。
+- `docs/dev-log/YYYY-MM-DD.md`：重要实施过程记录；不要再在根目录新建日期文件夹。
+- `.editorconfig`：统一 UTF-8、换行符、缩进和 Markdown 尾随空格策略。
+- `.gitattributes`：统一 Git 换行符归一化；源码和文档使用 LF，Windows 脚本使用 CRLF。
 - `scripts/read-utf8.ps1`：Windows PowerShell 下按 UTF-8 读取中文文档，避免默认编码导致乱码。
-- 每次完成功能改进、体验优化、升级或扩展后，都要同步更新相关文档；至少检查 `CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md` 和 `PROJECT_CONTEXT.md` 是否需要记录本次变化。若变化涉及版本公告或发布，还要同步 `announcements/releases.json`。
+- `scripts/check-docs.mjs`：检查版本号、发布说明、版本公告和文档结构是否一致，对应 `npm run docs:check`。
+- 每次完成功能改进、体验优化、升级或扩展后，都要同步更新相关文档；至少检查 `CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md` 和 `PROJECT_CONTEXT.md` 是否需要记录本次变化。若变化涉及版本公告或发布，还要同步 `announcements/releases.json`。提交前优先运行 `npm run docs:check`。
 
 Windows PowerShell 查看中文文档时，优先使用：
 
@@ -169,14 +177,27 @@ npm run ngrok:dev
 - 如果服务商 `/models` 不完整或不可用，可以选择“手动填写模型名”。
 - 手动输入的模型名会作为 API 请求体里的 `model` 字段，用于图片讲解、OCR 文本讲解和追问。
 
+## v1.1.0 已归档发布内容
+
+- 设置页新增“一键诊断”：主进程通过 `src/main/diagnostics.ts` 检查当前连接模式、配置文件、代理地址、代理 Token、API 服务商、模型列表和当前模型，返回 `DiagnosticResult`。诊断报告必须给普通用户可执行的“可能原因”和“处理建议”，并只暴露脱敏技术细节。
+- 设置向导框架已落地：`GuideKind` 支持 `product` 和 `release`；当前实现整体功能向导，版本新增向导保留入口和空态。应用版本变化后首次打开会自动显示整体功能向导，设置页顶部可重新打开两类向导。
+- 结果面板新增复制/导出 Markdown：`src/shared/exportConversation.ts` 生成 Markdown，主进程 `src/main/exportConversation.ts` 使用保存对话框写入文件；默认不导出截图、API Key、代理 Token 或代理地址。
+- 代理服务新增多 Token 与限流：旧 `TUTOR_PROXY_TOKEN` 继续作为 `default` 兼容；可用 `TUTOR_PROXY_TOKENS` + `TUTOR_PROXY_TOKEN_<ID>` 配置具名 Token，并用 `TUTOR_PROXY_RATE_LIMIT_PER_MINUTE` / `TUTOR_PROXY_RATE_LIMIT_BURST` 或单 Token 覆盖项启用限流。限流状态为内存级，按 token id + endpoint 计算。
+- `/health` 现在额外返回 `tokenCount`、`rateLimitEnabled` 和 `providerCount`；客户端诊断会把这些信息作为代理健康技术细节展示。
+- 文档管理规范化：新增 `.editorconfig`、`.gitattributes`、`docs/codex-handoff.md`、`docs/architecture.md`、`docs/release-checklist.md`、`scripts/check-docs.mjs` 和 `npm run docs:check`；实施记录迁移到 `docs/dev-log/2026-05-12.md`。
+- GitHub Actions 发布工作流已接入 `npm run docs:check`，后续推送 tag 发布前会自动校验文档结构和版本公告一致性。
+
 ## 当前本地状态提醒
 
 - `v1.0.2` 发布内容：OCR 结果确认页、图片失败后的 OCR 确认兜底、KaTeX 公式渲染、扁平公式转 LaTeX、提示词公式输出约束、工具栏/设置面板拖动、开发标签页脚本，以及 `App.tsx` 渲染层拆分。
 - `v1.0.3` 发布内容：顶部“截图”改为拖拽截图模式，拖拽完成后先待确认，点击“确认识别”后才提交识别；点击“截图下一题”或“结束本题”后隐藏结果窗口并进入截图模式，下一题确认识别后再显示结果窗口；启动/聚焦/恢复可见时主动同步鼠标穿透状态；流式回答正文出现后立即隐藏可见处理过程；长回答支持一键跳到底部；用户追问右对齐显示。
-- 已新增文档维护约定：以后每次完成功能改进、体验优化、升级或扩展后，都要同步检查并更新相关文档。
-- `announcements/releases.json` 当前可见版本公告为 `release-v1.0.3`。
-- `v1.0.3` 发布材料已同步到 `package.json`、`package-lock.json`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`PROJECT_CONTEXT.md` 和版本公告。
-- 推送 tag `v1.0.3` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
+- `v1.1.0` 发布内容：一键诊断、整体功能向导框架、Markdown 导出、代理服务多 Token/限流、Codex 接手文档、文档自检和 GitHub Actions 发布前文档检查。
+- 当前 Unreleased 改动：暂无。
+- 已新增文档维护约定和 `npm run docs:check`：以后每次完成功能改进、体验优化、升级或扩展后，都要同步检查并更新相关文档。
+- `announcements/releases.json` 当前可见版本公告为 `release-v1.1.0`。
+- `v1.1.0` 发布材料已同步到 `package.json`、`package-lock.json`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`PROJECT_CONTEXT.md` 和版本公告。
+- 推送 tag `v1.1.0` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
+- 发布流程统一走 GitHub Actions，不在本机手动发布 GitHub Release；本机只在 GitHub Actions 发布成功后运行 `npm run dist` 同步 `release/`。
 - 发布完成后仍需同步本地 `release/` 文件夹，确认 `release/latest.yml` 和安装包都指向当前最新版本。
 - 不要把 `.env.local`、API Key、代理 Token、ngrok Token 提交到仓库。
 
@@ -184,6 +205,7 @@ npm run ngrok:dev
 
 ```bash
 git status --short --branch
+npm run docs:check
 npm run typecheck
 npm run lint
 ```

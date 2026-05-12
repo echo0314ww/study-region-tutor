@@ -18,6 +18,7 @@ let announcementReloadTimer;
 let announcementWatchers = [];
 let lastServiceUrlSignature = '';
 const announcementClients = new Set();
+const rateLimitBuckets = new Map();
 
 function parseEnvValue(raw) {
   const value = raw.trim();
@@ -84,6 +85,14 @@ function normalizeProviderId(id) {
   return id.trim().toLowerCase();
 }
 
+function normalizeTokenId(id) {
+  return String(id || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 function providerEnvKey(id) {
   return id
     .trim()
@@ -94,6 +103,54 @@ function providerEnvKey(id) {
 
 function normalizeBaseUrl(baseUrl) {
   return baseUrl.replace(/\/+$/, '');
+}
+
+function parsePositiveInteger(value) {
+  const number = Number.parseInt(String(value || ''), 10);
+
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function loadProxyTokens(env) {
+  const tokens = [];
+  const seenIds = new Set();
+  const legacyToken = String(env.TUTOR_PROXY_TOKEN || '').trim();
+
+  if (legacyToken) {
+    tokens.push({
+      id: 'default',
+      token: legacyToken,
+      perMinute: parsePositiveInteger(env.TUTOR_PROXY_RATE_LIMIT_DEFAULT_PER_MINUTE),
+      burst: parsePositiveInteger(env.TUTOR_PROXY_RATE_LIMIT_DEFAULT_BURST)
+    });
+    seenIds.add('default');
+  }
+
+  for (const rawId of String(env.TUTOR_PROXY_TOKENS || '').split(',')) {
+    const id = normalizeTokenId(rawId);
+
+    if (!id || seenIds.has(id)) {
+      continue;
+    }
+
+    const key = providerEnvKey(id);
+    const token = String(env[`TUTOR_PROXY_TOKEN_${key}`] || '').trim();
+
+    if (!token) {
+      console.warn(`[proxy] token "${id}" is listed in TUTOR_PROXY_TOKENS but TUTOR_PROXY_TOKEN_${key} is missing.`);
+      continue;
+    }
+
+    tokens.push({
+      id,
+      token,
+      perMinute: parsePositiveInteger(env[`TUTOR_PROXY_RATE_LIMIT_${key}_PER_MINUTE`]),
+      burst: parsePositiveInteger(env[`TUTOR_PROXY_RATE_LIMIT_${key}_BURST`])
+    });
+    seenIds.add(id);
+  }
+
+  return tokens;
 }
 
 function normalizeOptionalUrl(value, label) {
@@ -152,10 +209,10 @@ function logServiceUrls(config = activeConfig) {
 
 function loadConfig() {
   const env = readRuntimeEnv();
-  const token = String(env.TUTOR_PROXY_TOKEN || '').trim();
+  const tokens = loadProxyTokens(env);
 
-  if (!token) {
-    throw new Error('Missing TUTOR_PROXY_TOKEN in .env.local.');
+  if (tokens.length === 0) {
+    throw new Error('Missing TUTOR_PROXY_TOKEN or named TUTOR_PROXY_TOKENS in .env.local.');
   }
 
   const providerIds = String(env.AI_PROVIDERS || '')
@@ -214,6 +271,8 @@ function loadConfig() {
   const defaultId = providers.some((provider) => provider.id === requestedDefault) ? requestedDefault : providers[0].id;
   const port = Number.parseInt(String(env.TUTOR_PROXY_PORT || DEFAULT_PORT), 10);
   const maxBodyMb = Number.parseInt(String(env.TUTOR_PROXY_MAX_BODY_MB || DEFAULT_MAX_BODY_MB), 10);
+  const defaultRateLimitPerMinute = parsePositiveInteger(env.TUTOR_PROXY_RATE_LIMIT_PER_MINUTE);
+  const defaultRateLimitBurst = parsePositiveInteger(env.TUTOR_PROXY_RATE_LIMIT_BURST);
   const announcementFile = String(env.ANNOUNCEMENT_FILE || DEFAULT_ANNOUNCEMENT_FILE).trim();
   const releaseAnnouncementFile = String(
     env.ANNOUNCEMENT_RELEASE_FILE || DEFAULT_RELEASE_ANNOUNCEMENT_FILE
@@ -225,7 +284,11 @@ function loadConfig() {
 
   return {
     loadedAt: new Date().toISOString(),
-    token,
+    tokens,
+    rateLimit: {
+      perMinute: defaultRateLimitPerMinute,
+      burst: defaultRateLimitBurst
+    },
     port: Number.isFinite(port) && port > 0 ? port : DEFAULT_PORT,
     maxBodyBytes: (Number.isFinite(maxBodyMb) && maxBodyMb > 0 ? maxBodyMb : DEFAULT_MAX_BODY_MB) * 1024 * 1024,
     publicProxyUrl,
@@ -241,7 +304,9 @@ function loadConfig() {
 function loadConfigSafely() {
   try {
     const config = loadConfig();
-    console.log(`[proxy] loaded ${config.providers.length} provider(s) at ${config.loadedAt}`);
+    console.log(
+      `[proxy] loaded ${config.providers.length} provider(s), ${config.tokens.length} proxy token(s) at ${config.loadedAt}`
+    );
     return config;
   } catch (error) {
     console.error(`[proxy] config load failed: ${errorMessage(error)}`);
@@ -928,11 +993,69 @@ function handleAnnouncementStream(req, res) {
   });
 }
 
-function isAuthorized(req) {
+function authorizeRequest(req) {
   const header = req.headers.authorization || '';
-  const expected = `Bearer ${activeConfig.token}`;
 
-  return header === expected;
+  if (!header.startsWith('Bearer ')) {
+    return undefined;
+  }
+
+  const token = header.slice('Bearer '.length).trim();
+
+  if (!token) {
+    return undefined;
+  }
+
+  return activeConfig.tokens.find((item) => item.token === token);
+}
+
+function rateLimitSettingsFor(identity, config = activeConfig) {
+  const perMinute = identity.perMinute || config.rateLimit.perMinute;
+
+  if (!perMinute) {
+    return undefined;
+  }
+
+  return {
+    perMinute,
+    burst: identity.burst || config.rateLimit.burst || Math.max(1, Math.ceil(perMinute / 4))
+  };
+}
+
+function checkRateLimit(identity, endpoint) {
+  const settings = rateLimitSettingsFor(identity);
+
+  if (!settings) {
+    return { ok: true };
+  }
+
+  const now = Date.now();
+  const key = `${identity.id}:${endpoint}`;
+  const refillPerMs = settings.perMinute / 60000;
+  const previous = rateLimitBuckets.get(key) || {
+    tokens: settings.burst,
+    updatedAt: now
+  };
+  const tokens = Math.min(settings.burst, previous.tokens + (now - previous.updatedAt) * refillPerMs);
+
+  if (tokens < 1) {
+    rateLimitBuckets.set(key, { tokens, updatedAt: now });
+    return {
+      ok: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((1 - tokens) / refillPerMs / 1000))
+    };
+  }
+
+  rateLimitBuckets.set(key, {
+    tokens: tokens - 1,
+    updatedAt: now
+  });
+
+  return { ok: true };
+}
+
+function isRateLimitEnabled(config = activeConfig) {
+  return Boolean(config.rateLimit.perMinute || config.tokens.some((token) => token.perMinute));
 }
 
 function readJsonBody(req) {
@@ -1258,7 +1381,9 @@ async function route(req, res) {
         serviceUrls: serviceUrls(activeConfig),
         announcementEnabled: activeConfig.announcementEnabled,
         announcementCount: activeAnnouncements.length,
-        hasAnnouncement: activeAnnouncements.length > 0
+        hasAnnouncement: activeAnnouncements.length > 0,
+        tokenCount: activeConfig.tokens.length,
+        rateLimitEnabled: isRateLimitEnabled(activeConfig)
       }
     });
     return;
@@ -1274,8 +1399,21 @@ async function route(req, res) {
     return;
   }
 
-  if (!isAuthorized(req)) {
+  const identity = authorizeRequest(req);
+
+  if (!identity) {
     sendJson(res, 401, { ok: false, error: 'Unauthorized proxy request.' });
+    return;
+  }
+
+  const limit = checkRateLimit(identity, url.pathname);
+
+  if (!limit.ok) {
+    res.setHeader('Retry-After', String(limit.retryAfterSeconds || 1));
+    sendJson(res, 429, {
+      ok: false,
+      error: `Rate limit exceeded for token "${identity.id}". Please retry later.`
+    });
     return;
   }
 
