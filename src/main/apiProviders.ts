@@ -1,4 +1,4 @@
-import type { ApiMode, ApiProviderOption } from '../shared/types';
+import type { ApiMode, ApiProviderOption, ApiProviderType } from '../shared/types';
 
 export interface ApiProviderConfig extends ApiProviderOption {
   apiKey: string;
@@ -10,6 +10,16 @@ function envValue(key: string): string {
 
 export function parseApiMode(value: string | undefined): ApiMode {
   return value === 'responses' ? 'responses' : 'chat-completions';
+}
+
+export function parseApiProviderType(value: string | undefined): ApiProviderType {
+  const normalized = value?.trim().toLowerCase();
+
+  if (normalized === 'gemini' || normalized === 'anthropic') {
+    return normalized;
+  }
+
+  return 'openai-compatible';
 }
 
 function normalizeProviderId(id: string): string {
@@ -57,12 +67,16 @@ function providerFromEnv(id: string): Omit<ApiProviderConfig, 'isDefault'> | und
   const name = envValue(`AI_PROVIDER_${envKey}_NAME`) || id;
   const apiKey = envValue(`AI_PROVIDER_${envKey}_API_KEY`);
   const apiMode = parseApiMode(envValue(`AI_PROVIDER_${envKey}_API_MODE`) || envValue('AI_API_MODE') || undefined);
+  const apiProviderType = parseApiProviderType(
+    envValue(`AI_PROVIDER_${envKey}_API_TYPE`) || envValue('AI_API_TYPE') || undefined
+  );
 
   return {
     id,
     name,
     baseUrl: normalizeBaseUrl(baseUrl),
     apiMode,
+    apiProviderType,
     apiKey,
     hasApiKey: Boolean(apiKey)
   };
@@ -82,6 +96,7 @@ function legacyProvider(): Omit<ApiProviderConfig, 'isDefault'> | undefined {
     name: 'Default API',
     baseUrl: normalizeBaseUrl(baseUrl),
     apiMode: parseApiMode(envValue('AI_API_MODE') || undefined),
+    apiProviderType: parseApiProviderType(envValue('AI_API_TYPE') || undefined),
     apiKey,
     hasApiKey: Boolean(apiKey)
   };

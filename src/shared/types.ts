@@ -1,11 +1,12 @@
 export type TutorLanguage = 'zh-CN' | 'en';
 export type ApiMode = 'chat-completions' | 'responses';
 export type ApiModeSetting = ApiMode | 'env';
+export type ApiProviderType = 'openai-compatible' | 'gemini' | 'anthropic';
 export type ApiConnectionMode = 'direct' | 'proxy';
 export type InputMode = 'ocr-text' | 'image';
 export type OcrPreviewReason = 'ocr-mode' | 'image-fallback';
 export type OcrLanguage = 'chi_sim' | 'eng';
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type ReasoningEffortSetting = ReasoningEffort | 'off';
 export type SessionRole = 'user' | 'assistant';
 export type DiagnosticStatus = 'pass' | 'warn' | 'fail';
@@ -63,6 +64,7 @@ export interface ApiProviderOption {
   name: string;
   baseUrl: string;
   apiMode: ApiMode;
+  apiProviderType: ApiProviderType;
   hasApiKey: boolean;
   isDefault: boolean;
 }

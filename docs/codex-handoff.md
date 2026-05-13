@@ -25,6 +25,8 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 PROJECT_CONTEXT.m
 - 涉及主进程能力时，保持 `src/shared/ipc.ts`、`src/preload/index.ts`、主进程 handler 和渲染层调用同步。
 - 涉及用户可见功能时，同步考虑设置页、一键诊断、错误提示、导出内容和文档说明。
 - 涉及代理服务时，保持 Token 脱敏、API Key 不下发、公开接口不需要 Token、API 代理接口需要 Token。
+- 涉及 API 服务商时，注意 `AI_API_TYPE` / `AI_PROVIDER_<ID>_API_TYPE` 的协议分支：`openai-compatible` 走 Chat Completions 或 Responses，`gemini` 和 `anthropic` 走原生请求格式。
+- 涉及思考程度时，先看 `src/shared/reasoning.ts`。设置面板、主进程和代理服务都要按服务商/模型归一化，不要再固定套用 `low/medium/high/xhigh`：Claude 4.6 可用 `max` 并映射到 `output_config.effort`，Gemini 3/2.5 分别使用 `thinkingLevel` / `thinkingBudget`。
 
 ## 文档更新矩阵
 
@@ -34,6 +36,7 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 PROJECT_CONTEXT.m
 - 新对话必须知道的状态、约定、未发布改动：更新 `PROJECT_CONTEXT.md`。
 - 架构边界、目录职责、IPC 或核心流程变化：更新 `docs/architecture.md`。
 - 发布流程或验证命令变化：更新 `docs/release-checklist.md`。
+- 代理服务、Token、限流或 provider 协议示例变化：更新 `docs/proxy-config.example.env`。
 - 重要实施过程、设计取舍或排障记录：新增或更新 `docs/dev-log/YYYY-MM-DD.md`。
 - 版本公告或正式发版：更新 `announcements/releases.json`。
 

@@ -30,7 +30,7 @@ export const DEFAULT_SETTINGS: TutorSettings = {
   inputMode: 'image',
   ocrLanguage: 'chi_sim',
   ocrMathMode: true,
-  reasoningEffort: 'low'
+  reasoningEffort: 'off'
 };
 
 export const MODEL_PLACEHOLDER_VALUE = '__select_model__';

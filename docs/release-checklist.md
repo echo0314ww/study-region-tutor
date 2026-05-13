@@ -19,6 +19,7 @@
 - [ ] 更新 `PROJECT_CONTEXT.md`，让下一次 Codex 对话能恢复当前系统约定。
 - [ ] 如涉及版本公告或发布，更新 `announcements/releases.json`。
 - [ ] 如改动过程值得回溯，新增或更新 `docs/dev-log/YYYY-MM-DD.md`。
+- [ ] 如涉及代理服务、Token、限流或 provider 协议配置，更新 `docs/proxy-config.example.env`。
 - [ ] 确认没有把 `.env.local`、API Key、代理 Token、ngrok Token 或 GitHub token 写入文档。
 
 ## 验证

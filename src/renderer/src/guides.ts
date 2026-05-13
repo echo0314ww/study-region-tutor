@@ -34,7 +34,7 @@ export function productGuide(version: string): GuideDefinition {
       },
       {
         title: '导出学习记录',
-        body: '结果窗口支持复制或导出 Markdown，默认只包含文字讲解和追问记录，不包含截图、API Key、代理 Token 或代理地址。',
+        body: '结果窗口底部支持复制答案或导出答案，默认只包含文字讲解和追问记录，不包含截图、API Key、代理 Token 或代理地址。',
         action: '适合把解题思路整理到笔记软件中。'
       }
     ]

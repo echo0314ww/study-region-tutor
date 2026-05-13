@@ -12,7 +12,7 @@
 
 ## 当前版本与发布
 
-- 当前版本：`1.1.0`。
+- 当前版本：`1.1.1`。
 - GitHub 仓库：`echo0314ww/study-region-tutor`。
 - Windows 发布通过 GitHub Actions 完成，不使用 Personal Access Token。
 - 发布工作流使用仓库自带 `GITHUB_TOKEN`；`GH_TOKEN` 只作为 electron-builder 兼容变量指向同一个仓库 token。
@@ -59,6 +59,7 @@ node --check scripts/sync-release-notes.mjs
 - `docs/codex-handoff.md`：给新账号、新对话或新 Codex 会话接手项目时使用；进入项目后应优先阅读。
 - `docs/architecture.md`：给维护者看的架构边界、目录职责、核心流程和文档地图。
 - `docs/release-checklist.md`：功能完成和发布前的检查清单。
+- `docs/proxy-config.example.env`：代理服务、多 Token、限流和多协议 API 服务商配置模板，不含真实密钥。
 - `docs/dev-log/YYYY-MM-DD.md`：重要实施过程记录；不要再在根目录新建日期文件夹。
 - `.editorconfig`：统一 UTF-8、换行符、缩进和 Markdown 尾随空格策略。
 - `.gitattributes`：统一 Git 换行符归一化；源码和文档使用 LF，Windows 脚本使用 CRLF。
@@ -86,6 +87,8 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 README.md
 - 公告接口不需要 Token。
 - 用户只填写 `TUTOR_PROXY_TOKEN` 即可使用 API 代理；不需要知道第三方 API Key。
 - 用户端首次填写 `TUTOR_PROXY_TOKEN` 并成功刷新代理服务商后，会在本机保存代理 Token；后续可留空使用已保存 Token。保存优先使用 Electron `safeStorage`，鉴权失败时清除旧 Token 并要求重新填写。
+- API 服务商可通过 `AI_API_TYPE` 或 `AI_PROVIDER_<ID>_API_TYPE` 声明协议类型：`openai-compatible`、`gemini`、`anthropic`。`openai-compatible` 使用 `AI_API_MODE` 选择 Chat Completions 或 Responses；Gemini 和 Anthropic 使用原生请求格式。
+- 思考程度由 `src/shared/reasoning.ts` 统一决定可选项和归一化规则。OpenAI-compatible 映射到 `reasoning_effort` / `reasoning.effort`；Claude 4.6/4.7/Mythos 优先使用 `thinking: { type: "adaptive" }` + `output_config.effort`，旧 Claude 模型回退到 `thinking.budget_tokens`；Gemini 3 使用 `thinkingLevel`，Gemini 2.5 使用 `thinkingBudget`。主进程和 `server/proxy-server.mjs` 都要使用同一套语义，不能再固定显示或发送 `low/medium/high/xhigh`。
 - 本地直连配置缺失或模型列表刷新失败时，设置页只显示应用更新、API 连接模式和本地直连配置指引，隐藏后续 API/OCR 设置；配置指引应显示当前用户实际 `.env.local` 路径，例如 `C:\Users\用户名\AppData\Roaming\study-region-tutor\.env.local`，不要只显示 `%APPDATA%` 占位符。
 - 如果使用内置默认代理地址，普通设置页不显示远程服务地址输入框，只显示连接状态。
 - 高级设置是独立调试视图，只保留：代理服务地址输入框、验证是否连接成功、恢复默认地址、验证结果提示。
@@ -187,16 +190,25 @@ npm run ngrok:dev
 - 文档管理规范化：新增 `.editorconfig`、`.gitattributes`、`docs/codex-handoff.md`、`docs/architecture.md`、`docs/release-checklist.md`、`scripts/check-docs.mjs` 和 `npm run docs:check`；实施记录迁移到 `docs/dev-log/2026-05-12.md`。
 - GitHub Actions 发布工作流已接入 `npm run docs:check`，后续推送 tag 发布前会自动校验文档结构和版本公告一致性。
 
+## v1.1.1 已归档发布内容
+
+- 结果面板底部动作区改为“复制答案 / 导出答案”，与发送追问、截图下一题和结束本题放在同一操作区；底层仍导出 Markdown 文件。
+- 直连和代理服务新增 `AI_API_TYPE` / `AI_PROVIDER_<ID>_API_TYPE`，兼容 OpenAI-compatible、Gemini 原生和 Anthropic 原生协议。
+- 设置面板思考程度改为按服务商和模型动态显示，并兼容 Claude Opus 4.6 的 `max`、Gemini 3 `thinkingLevel` 和 Gemini 2.5 `thinkingBudget`。
+- 新增 `src/shared/reasoning.ts` 作为思考程度归一化入口；主进程和 `server/proxy-server.mjs` 都使用同一语义生成请求参数。
+- `docs/proxy-config.example.env` 补充 Makelove provider、多具名代理 Token 和限流配置示例，不包含真实密钥。
+
 ## 当前本地状态提醒
 
 - `v1.0.2` 发布内容：OCR 结果确认页、图片失败后的 OCR 确认兜底、KaTeX 公式渲染、扁平公式转 LaTeX、提示词公式输出约束、工具栏/设置面板拖动、开发标签页脚本，以及 `App.tsx` 渲染层拆分。
 - `v1.0.3` 发布内容：顶部“截图”改为拖拽截图模式，拖拽完成后先待确认，点击“确认识别”后才提交识别；点击“截图下一题”或“结束本题”后隐藏结果窗口并进入截图模式，下一题确认识别后再显示结果窗口；启动/聚焦/恢复可见时主动同步鼠标穿透状态；流式回答正文出现后立即隐藏可见处理过程；长回答支持一键跳到底部；用户追问右对齐显示。
 - `v1.1.0` 发布内容：一键诊断、整体功能向导框架、Markdown 导出、代理服务多 Token/限流、Codex 接手文档、文档自检和 GitHub Actions 发布前文档检查。
+- `v1.1.1` 发布内容：结果面板底部动作区改为“复制答案/导出答案”；直连和代理服务新增 `AI_API_TYPE` / `AI_PROVIDER_<ID>_API_TYPE`，兼容 Gemini 原生和 Anthropic 原生协议；设置面板思考程度改为按服务商/模型动态显示，并兼容 Claude Opus 4.6 的 `max`、Gemini `thinkingLevel` / `thinkingBudget`；代理配置模板补充多具名 Token 和限流示例。
 - 当前 Unreleased 改动：暂无。
 - 已新增文档维护约定和 `npm run docs:check`：以后每次完成功能改进、体验优化、升级或扩展后，都要同步检查并更新相关文档。
-- `announcements/releases.json` 当前可见版本公告为 `release-v1.1.0`。
-- `v1.1.0` 发布材料已同步到 `package.json`、`package-lock.json`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`PROJECT_CONTEXT.md` 和版本公告。
-- 推送 tag `v1.1.0` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
+- `announcements/releases.json` 当前可见版本公告为 `release-v1.1.1`。
+- `v1.1.1` 发布材料已同步到 `package.json`、`package-lock.json`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`PROJECT_CONTEXT.md` 和版本公告。
+- 推送 tag `v1.1.1` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
 - 发布流程统一走 GitHub Actions，不在本机手动发布 GitHub Release；本机只在 GitHub Actions 发布成功后运行 `npm run dist` 同步 `release/`。
 - 发布完成后仍需同步本地 `release/` 文件夹，确认 `release/latest.yml` 和安装包都指向当前最新版本。
 - 不要把 `.env.local`、API Key、代理 Token、ngrok Token 提交到仓库。

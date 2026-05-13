@@ -2,13 +2,15 @@ import type {
   ApiConnectionMode,
   ApiMode,
   ApiProviderOption,
+  ApiProviderType,
   ApiRuntimeDefaults,
   ModelListResult,
   ModelOption,
   QuestionSessionTurn,
-  ReasoningEffort,
+  ReasoningEffortSetting,
   TutorSettings
 } from '../shared/types';
+import { isAnthropicAdaptiveEffortModel, normalizeReasoningEffort } from '../shared/reasoning';
 import { isOperationCanceled, throwIfAborted } from './cancel';
 import {
   buildFollowUpHistoryPrompt,
@@ -17,7 +19,7 @@ import {
   buildTutorTextPrompt,
   buildTutorUserPrompt
 } from './prompts';
-import { getApiProviderById, getApiProviderSummaries, parseApiMode } from './apiProviders';
+import { getApiProviderById, getApiProviderSummaries, parseApiMode, parseApiProviderType } from './apiProviders';
 
 export interface ModelAnswer {
   text: string;
@@ -39,7 +41,8 @@ interface ApiConfig {
   baseUrl: string;
   model: string;
   apiMode: ApiMode;
-  reasoningEffort?: ReasoningEffort;
+  apiProviderType: ApiProviderType;
+  reasoningEffort: ReasoningEffortSetting;
   providerId?: string;
   providerName?: string;
 }
@@ -48,6 +51,7 @@ interface ApiConnectionConfig {
   apiKey: string;
   baseUrl: string;
   apiMode?: ApiMode;
+  apiProviderType: ApiProviderType;
   providerId?: string;
   providerName?: string;
 }
@@ -83,7 +87,7 @@ function requireThirdPartyBaseUrl(baseUrl: string): void {
   }
 
   if (url.hostname === 'api.openai.com' || url.hostname.endsWith('.openai.com')) {
-    throw new Error('当前配置指向 OpenAI 官方 API。请填写第三方 OpenAI-compatible API Base URL。');
+    throw new Error('当前配置指向 OpenAI 官方 API。请填写第三方 API 服务商提供的 Base URL。');
   }
 }
 
@@ -95,11 +99,12 @@ export function resolveApiConfig(settings: TutorSettings): ApiConfig {
   const connection = resolveApiConnectionConfig(settings);
   const model = settings.model.trim();
   const apiMode = settings.apiMode === 'env' ? connection.apiMode || parseApiMode(process.env.AI_API_MODE) : settings.apiMode;
-  const reasoningEffort = settings.reasoningEffort === 'off' ? undefined : settings.reasoningEffort;
 
   if (!model) {
     throw new Error('请在设置中选择或填写第三方模型名。');
   }
+
+  const reasoningEffort = normalizeReasoningEffort(settings.reasoningEffort, connection.apiProviderType, model);
 
   return {
     ...connection,
@@ -127,6 +132,7 @@ function resolveApiConnectionConfig(settings: TutorSettings): ApiConnectionConfi
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
       apiMode: provider.apiMode,
+      apiProviderType: provider.apiProviderType,
       providerId: provider.id,
       providerName: provider.name
     };
@@ -147,7 +153,8 @@ function resolveApiConnectionConfig(settings: TutorSettings): ApiConnectionConfi
 
   return {
     apiKey,
-    baseUrl: baseUrl.replace(/\/+$/, '')
+    baseUrl: baseUrl.replace(/\/+$/, ''),
+    apiProviderType: parseApiProviderType(process.env.AI_API_TYPE)
   };
 }
 
@@ -173,20 +180,190 @@ export function listApiProviders(): ApiProviderOption[] {
   return getApiProviderSummaries();
 }
 
-function withReasoning<T extends Record<string, unknown>>(body: T, config: ApiConfig): T & { reasoning?: { effort: ReasoningEffort } } {
-  if (!config.reasoningEffort) {
+type OpenAiReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+type GeminiThinkingConfig = { thinkingLevel: 'minimal' | 'low' | 'medium' | 'high' } | { thinkingBudget: number };
+
+function openAiReasoningEffort(config: ApiConfig): OpenAiReasoningEffort | undefined {
+  if (config.apiProviderType !== 'openai-compatible' || config.reasoningEffort === 'off' || config.reasoningEffort === 'max') {
+    return undefined;
+  }
+
+  return config.reasoningEffort;
+}
+
+function hasOpenAiReasoning(config: ApiConfig): boolean {
+  return Boolean(openAiReasoningEffort(config));
+}
+
+function withReasoning<T extends Record<string, unknown>>(body: T, config: ApiConfig): T & { reasoning?: { effort: OpenAiReasoningEffort } } {
+  const effort = openAiReasoningEffort(config);
+
+  if (!effort) {
     return body;
   }
 
   return {
     ...body,
     reasoning: {
-      effort: config.reasoningEffort
+      effort
     }
   };
 }
 
-function endpointFor(config: ApiConfig): string {
+function withChatReasoning<T extends Record<string, unknown>>(body: T, config: ApiConfig): T & { reasoning_effort?: OpenAiReasoningEffort } {
+  const effort = openAiReasoningEffort(config);
+
+  return effort ? { ...body, reasoning_effort: effort } : body;
+}
+
+function geminiThinkingConfig(config: ApiConfig): GeminiThinkingConfig | undefined {
+  const effort = config.reasoningEffort;
+  const model = config.model.toLowerCase();
+
+  if (effort === 'off') {
+    return undefined;
+  }
+
+  if (model.includes('gemini-3')) {
+    const level = effort === 'minimal' || effort === 'low' || effort === 'medium' || effort === 'high' ? effort : 'high';
+
+    return { thinkingLevel: level };
+  }
+
+  if (model.includes('gemini-2.5') || model.includes('gemini-2-5')) {
+    const budgetByEffort: Record<Exclude<ReasoningEffortSetting, 'off'>, number> = {
+      minimal: 512,
+      low: 1024,
+      medium: 4096,
+      high: 8192,
+      xhigh: 16384,
+      max: 24576
+    };
+
+    return { thinkingBudget: budgetByEffort[effort] };
+  }
+
+  return undefined;
+}
+
+function withGeminiThinking<T extends Record<string, unknown>>(
+  body: T,
+  config: ApiConfig
+): T & { generationConfig?: { thinkingConfig: GeminiThinkingConfig } } {
+  const thinkingConfig = geminiThinkingConfig(config);
+
+  return thinkingConfig
+    ? {
+        ...body,
+        generationConfig: {
+          thinkingConfig
+        }
+      }
+    : body;
+}
+
+function anthropicEffort(config: ApiConfig): AnthropicEffort | undefined {
+  const effort = config.reasoningEffort;
+
+  if (config.apiProviderType !== 'anthropic' || effort === 'off' || effort === 'minimal') {
+    return undefined;
+  }
+
+  return effort;
+}
+
+function anthropicMaxTokens(effort: AnthropicEffort | undefined): number {
+  switch (effort) {
+    case 'max':
+      return 20000;
+    case 'xhigh':
+      return 16000;
+    case 'high':
+      return 12000;
+    case 'medium':
+      return 8192;
+    case 'low':
+    default:
+      return 4096;
+  }
+}
+
+function anthropicBudgetTokens(effort: AnthropicEffort): number {
+  switch (effort) {
+    case 'max':
+      return 16000;
+    case 'xhigh':
+      return 12000;
+    case 'high':
+      return 8000;
+    case 'medium':
+      return 4096;
+    case 'low':
+    default:
+      return 1024;
+  }
+}
+
+function withAnthropicThinking<T extends Record<string, unknown>>(
+  body: T,
+  config: ApiConfig
+): T & {
+  max_tokens: number;
+  thinking?: { type: 'adaptive'; display: 'omitted' } | { type: 'enabled'; budget_tokens: number };
+  output_config?: { effort: AnthropicEffort };
+} {
+  const effort = anthropicEffort(config);
+  const base = {
+    ...body,
+    max_tokens: anthropicMaxTokens(effort)
+  };
+
+  if (!effort) {
+    return base;
+  }
+
+  if (isAnthropicAdaptiveEffortModel(config.model)) {
+    return {
+      ...base,
+      thinking: {
+        type: 'adaptive',
+        display: 'omitted'
+      },
+      output_config: {
+        effort
+      }
+    };
+  }
+
+  return {
+    ...base,
+    thinking: {
+      type: 'enabled',
+      budget_tokens: anthropicBudgetTokens(effort)
+    }
+  };
+}
+
+function encodePathSegment(value: string): string {
+  return value.split('/').map(encodeURIComponent).join('/');
+}
+
+function geminiModelPath(model: string): string {
+  return encodePathSegment(model.trim().replace(/^models\//, ''));
+}
+
+function endpointFor(config: ApiConfig, stream = false): string {
+  if (config.apiProviderType === 'gemini') {
+    const action = stream ? 'streamGenerateContent' : 'generateContent';
+    const suffix = stream ? '?alt=sse' : '';
+    return `${config.baseUrl}/models/${geminiModelPath(config.model)}:${action}${suffix}`;
+  }
+
+  if (config.apiProviderType === 'anthropic') {
+    return config.baseUrl.endsWith('/messages') ? config.baseUrl : `${config.baseUrl}/messages`;
+  }
+
   if (config.apiMode === 'responses') {
     return config.baseUrl.endsWith('/responses') ? config.baseUrl : `${config.baseUrl}/responses`;
   }
@@ -194,9 +371,17 @@ function endpointFor(config: ApiConfig): string {
   return config.baseUrl.endsWith('/chat/completions') ? config.baseUrl : `${config.baseUrl}/chat/completions`;
 }
 
-function modelsEndpointFor(baseUrl: string): string {
+function modelsEndpointFor(baseUrl: string, apiProviderType: ApiProviderType): string {
   if (baseUrl.endsWith('/models')) {
     return baseUrl;
+  }
+
+  if (apiProviderType === 'anthropic' && baseUrl.endsWith('/messages')) {
+    return `${baseUrl.slice(0, -'/messages'.length)}/models`;
+  }
+
+  if (apiProviderType === 'gemini' || apiProviderType === 'anthropic') {
+    return `${baseUrl}/models`;
   }
 
   if (baseUrl.endsWith('/responses')) {
@@ -210,14 +395,25 @@ function modelsEndpointFor(baseUrl: string): string {
   return `${baseUrl}/models`;
 }
 
-function modelsEndpointCandidates(baseUrl: string): string[] {
-  const candidates = [modelsEndpointFor(baseUrl)];
+function modelsEndpointCandidates(baseUrl: string, apiProviderType: ApiProviderType): string[] {
+  const candidates = [modelsEndpointFor(baseUrl, apiProviderType)];
 
   try {
     const url = new URL(baseUrl);
     const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
 
-    if (normalizedPath === '/' || normalizedPath === '/responses' || normalizedPath === '/chat/completions') {
+    if (apiProviderType === 'gemini' && normalizedPath === '/') {
+      candidates.push(`${url.origin}/v1beta/models`);
+    }
+
+    if (apiProviderType === 'anthropic' && normalizedPath === '/') {
+      candidates.push(`${url.origin}/v1/models`);
+    }
+
+    if (
+      apiProviderType === 'openai-compatible' &&
+      (normalizedPath === '/' || normalizedPath === '/responses' || normalizedPath === '/chat/completions')
+    ) {
       candidates.push(`${url.origin}/v1/models`);
     }
   } catch {
@@ -275,13 +471,38 @@ function apiDisplayName(config: { providerName?: string }): string {
   return config.providerName ? `第三方 API「${config.providerName}」` : '第三方 API';
 }
 
+function requestHeadersFor(
+  config: Pick<ApiConnectionConfig, 'apiKey' | 'apiProviderType'>,
+  accept = 'application/json',
+  includeContentType = true
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: accept
+  };
+
+  if (includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (config.apiProviderType === 'gemini') {
+    headers['x-goog-api-key'] = config.apiKey;
+    return headers;
+  }
+
+  if (config.apiProviderType === 'anthropic') {
+    headers['x-api-key'] = config.apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+    return headers;
+  }
+
+  headers.Authorization = `Bearer ${config.apiKey}`;
+  return headers;
+}
+
 async function fetchModelOptionsFromEndpoint(config: ApiConnectionConfig, endpoint: string): Promise<ModelOption[]> {
   const response = await fetch(endpoint, {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      Accept: 'application/json'
-    }
+    headers: requestHeadersFor(config, 'application/json', false)
   });
   const text = await response.text();
   let data: unknown;
@@ -313,7 +534,7 @@ async function fetchModelOptionsFromEndpoint(config: ApiConnectionConfig, endpoi
 
 export async function listAvailableModels(settings: TutorSettings): Promise<ModelListResult> {
   const config = resolveApiConnectionConfig(settings);
-  const candidates = modelsEndpointCandidates(config.baseUrl);
+  const candidates = modelsEndpointCandidates(config.baseUrl, config.apiProviderType);
   let lastError: unknown;
 
   for (const endpoint of candidates) {
@@ -340,10 +561,7 @@ async function postJson(config: ApiConfig, body: unknown, signal?: AbortSignal):
 
   const response = await fetch(endpointFor(config), {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json'
-    },
+    headers: requestHeadersFor(config),
     body: JSON.stringify(body),
     signal
   });
@@ -418,6 +636,17 @@ function emitAnswerDelta(onDelta: AnswerDeltaHandler, text: string): void {
   }
 }
 
+function streamRequestBodyFor(config: ApiConfig, body: Record<string, unknown>): Record<string, unknown> {
+  if (config.apiProviderType === 'gemini') {
+    return body;
+  }
+
+  return {
+    ...body,
+    stream: true
+  };
+}
+
 async function postJsonStream(
   config: ApiConfig,
   body: Record<string, unknown>,
@@ -427,14 +656,10 @@ async function postJsonStream(
 ): Promise<ModelAnswer> {
   throwIfAborted(signal);
 
-  const response = await fetch(endpointFor(config), {
+  const response = await fetch(endpointFor(config, true), {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream'
-    },
-    body: JSON.stringify({ ...body, stream: true }),
+    headers: requestHeadersFor(config, 'text/event-stream'),
+    body: JSON.stringify(streamRequestBodyFor(config, body)),
     signal
   });
 
@@ -617,7 +842,7 @@ export function isRetryableApiError(error: unknown): boolean {
 function withoutReasoning(config: ApiConfig): ApiConfig {
   return {
     ...config,
-    reasoningEffort: undefined
+    reasoningEffort: 'off'
   };
 }
 
@@ -742,6 +967,81 @@ function extractChatStreamDelta(data: unknown): string {
   return textFromContentParts(firstChoice.delta.content);
 }
 
+function extractGeminiText(data: unknown): string {
+  if (!isRecord(data) || !Array.isArray(data.candidates)) {
+    return '';
+  }
+
+  const parts: string[] = [];
+
+  for (const candidate of data.candidates) {
+    if (!isRecord(candidate) || !isRecord(candidate.content) || !Array.isArray(candidate.content.parts)) {
+      continue;
+    }
+
+    for (const part of candidate.content.parts) {
+      if (isRecord(part) && typeof part.text === 'string') {
+        parts.push(part.text);
+      }
+    }
+  }
+
+  return parts.join('').trim();
+}
+
+function extractGeminiAnswer(data: unknown): ModelAnswer {
+  return {
+    text: extractGeminiText(data)
+  };
+}
+
+function extractGeminiStreamDelta(data: unknown): string {
+  return extractGeminiText(data);
+}
+
+function extractAnthropicText(data: unknown): string {
+  if (!isRecord(data) || !Array.isArray(data.content)) {
+    return '';
+  }
+
+  return data.content
+    .map((part) => (isRecord(part) && typeof part.text === 'string' ? part.text : ''))
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function extractAnthropicAnswer(data: unknown): ModelAnswer {
+  return {
+    text: extractAnthropicText(data)
+  };
+}
+
+function extractAnthropicStreamDelta(data: unknown): string {
+  if (!isRecord(data)) {
+    return '';
+  }
+
+  if (isRecord(data.delta) && typeof data.delta.text === 'string') {
+    return data.delta.text;
+  }
+
+  return '';
+}
+
+function imageDataFromDataUrl(dataUrl: string): { mimeType: string; data: string } {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl);
+
+  if (!match) {
+    throw new Error('截图数据格式不正确，无法发送给当前 API 服务商。');
+  }
+
+  return {
+    mimeType: match[1],
+    data: match[2]
+  };
+}
+
 async function explainWithResponses(
   dataUrl: string,
   settings: TutorSettings,
@@ -794,10 +1094,10 @@ async function explainWithChatCompletions(
   onDelta?: AnswerDeltaHandler
 ): Promise<ModelAnswer> {
   // Most third-party “OpenAI-compatible” providers support this vision message shape.
-  const body = {
-    model: config.model,
-    ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
-    messages: [
+  const body = withChatReasoning(
+    {
+      model: config.model,
+      messages: [
       {
         role: 'system',
         content: buildTutorInstructions(settings)
@@ -817,8 +1117,10 @@ async function explainWithChatCompletions(
           }
         ]
       }
-    ]
-  };
+      ]
+    },
+    config
+  );
 
   if (onDelta) {
     return postJsonStream(config, body, {
@@ -830,6 +1132,86 @@ async function explainWithChatCompletions(
   const response = await postJson(config, body, signal);
 
   return extractChatAnswer(response);
+}
+
+async function explainWithGemini(
+  dataUrl: string,
+  settings: TutorSettings,
+  config: ApiConfig,
+  signal?: AbortSignal,
+  onDelta?: AnswerDeltaHandler
+): Promise<ModelAnswer> {
+  const image = imageDataFromDataUrl(dataUrl);
+  const body = withGeminiThinking(
+    {
+      system_instruction: {
+        parts: [{ text: buildTutorInstructions(settings) }]
+      },
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: buildTutorUserPrompt(settings) },
+            {
+              inline_data: {
+                mime_type: image.mimeType,
+                data: image.data
+              }
+            }
+          ]
+        }
+      ]
+    },
+    config
+  );
+
+  if (onDelta) {
+    return postJsonStream(config, body, {
+      extractAnswer: extractGeminiAnswer,
+      extractDelta: extractGeminiStreamDelta
+    }, signal, onDelta);
+  }
+
+  return extractGeminiAnswer(await postJson(config, body, signal));
+}
+
+async function explainWithAnthropic(
+  dataUrl: string,
+  settings: TutorSettings,
+  config: ApiConfig,
+  signal?: AbortSignal,
+  onDelta?: AnswerDeltaHandler
+): Promise<ModelAnswer> {
+  const image = imageDataFromDataUrl(dataUrl);
+  const body = withAnthropicThinking({
+    model: config.model,
+    system: buildTutorInstructions(settings),
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: buildTutorUserPrompt(settings) },
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: image.mimeType,
+              data: image.data
+            }
+          }
+        ]
+      }
+    ]
+  }, config);
+
+  if (onDelta) {
+    return postJsonStream(config, body, {
+      extractAnswer: extractAnthropicAnswer,
+      extractDelta: extractAnthropicStreamDelta
+    }, signal, onDelta);
+  }
+
+  return extractAnthropicAnswer(await postJson(config, body, signal));
 }
 
 async function explainTextWithResponses(
@@ -867,10 +1249,10 @@ async function explainTextWithChatCompletions(
   signal?: AbortSignal,
   onDelta?: AnswerDeltaHandler
 ): Promise<ModelAnswer> {
-  const body = {
-    model: config.model,
-    ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
-    messages: [
+  const body = withChatReasoning(
+    {
+      model: config.model,
+      messages: [
       {
         role: 'system',
         content: buildTutorInstructions(settings)
@@ -879,8 +1261,10 @@ async function explainTextWithChatCompletions(
         role: 'user',
         content: buildTutorTextPrompt(recognizedText, settings)
       }
-    ]
-  };
+      ]
+    },
+    config
+  );
 
   if (onDelta) {
     return postJsonStream(config, body, {
@@ -892,6 +1276,66 @@ async function explainTextWithChatCompletions(
   const response = await postJson(config, body, signal);
 
   return extractChatAnswer(response);
+}
+
+async function explainTextWithGemini(
+  recognizedText: string,
+  settings: TutorSettings,
+  config: ApiConfig,
+  signal?: AbortSignal,
+  onDelta?: AnswerDeltaHandler
+): Promise<ModelAnswer> {
+  const body = withGeminiThinking(
+    {
+      system_instruction: {
+        parts: [{ text: buildTutorInstructions(settings) }]
+      },
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: buildTutorTextPrompt(recognizedText, settings) }]
+        }
+      ]
+    },
+    config
+  );
+
+  if (onDelta) {
+    return postJsonStream(config, body, {
+      extractAnswer: extractGeminiAnswer,
+      extractDelta: extractGeminiStreamDelta
+    }, signal, onDelta);
+  }
+
+  return extractGeminiAnswer(await postJson(config, body, signal));
+}
+
+async function explainTextWithAnthropic(
+  recognizedText: string,
+  settings: TutorSettings,
+  config: ApiConfig,
+  signal?: AbortSignal,
+  onDelta?: AnswerDeltaHandler
+): Promise<ModelAnswer> {
+  const body = withAnthropicThinking({
+    model: config.model,
+    system: buildTutorInstructions(settings),
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: buildTutorTextPrompt(recognizedText, settings) }]
+      }
+    ]
+  }, config);
+
+  if (onDelta) {
+    return postJsonStream(config, body, {
+      extractAnswer: extractAnthropicAnswer,
+      extractDelta: extractAnthropicStreamDelta
+    }, signal, onDelta);
+  }
+
+  return extractAnthropicAnswer(await postJson(config, body, signal));
 }
 
 function limitContextText(text: string, maxLength: number): string {
@@ -991,10 +1435,10 @@ async function askFollowUpWithChatHistory(
   signal?: AbortSignal,
   onDelta?: AnswerDeltaHandler
 ): Promise<ModelAnswer> {
-  const body = {
-    model: config.model,
-    ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
-    messages: [
+  const body = withChatReasoning(
+    {
+      model: config.model,
+      messages: [
       {
         role: 'system',
         content: buildTutorInstructions(settings)
@@ -1003,14 +1447,84 @@ async function askFollowUpWithChatHistory(
         role: 'user',
         content: buildLimitedFollowUpHistoryPrompt(context, question, settings)
       }
-    ]
-  };
+      ]
+    },
+    config
+  );
   const answer = onDelta
     ? await postJsonStream(config, body, {
         extractAnswer: extractChatAnswer,
         extractDelta: extractChatStreamDelta
       }, signal, onDelta)
     : extractChatAnswer(await postJson(config, body, signal));
+
+  return {
+    ...answer,
+    usedPreviousResponse: false,
+    usedLocalHistory: true
+  };
+}
+
+async function askFollowUpWithGeminiHistory(
+  question: string,
+  context: FollowUpContext,
+  settings: TutorSettings,
+  config: ApiConfig,
+  signal?: AbortSignal,
+  onDelta?: AnswerDeltaHandler
+): Promise<ModelAnswer> {
+  const body = withGeminiThinking(
+    {
+      system_instruction: {
+        parts: [{ text: buildTutorInstructions(settings) }]
+      },
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: buildLimitedFollowUpHistoryPrompt(context, question, settings) }]
+        }
+      ]
+    },
+    config
+  );
+  const answer = onDelta
+    ? await postJsonStream(config, body, {
+        extractAnswer: extractGeminiAnswer,
+        extractDelta: extractGeminiStreamDelta
+      }, signal, onDelta)
+    : extractGeminiAnswer(await postJson(config, body, signal));
+
+  return {
+    ...answer,
+    usedPreviousResponse: false,
+    usedLocalHistory: true
+  };
+}
+
+async function askFollowUpWithAnthropicHistory(
+  question: string,
+  context: FollowUpContext,
+  settings: TutorSettings,
+  config: ApiConfig,
+  signal?: AbortSignal,
+  onDelta?: AnswerDeltaHandler
+): Promise<ModelAnswer> {
+  const body = withAnthropicThinking({
+    model: config.model,
+    system: buildTutorInstructions(settings),
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: buildLimitedFollowUpHistoryPrompt(context, question, settings) }]
+      }
+    ]
+  }, config);
+  const answer = onDelta
+    ? await postJsonStream(config, body, {
+        extractAnswer: extractAnthropicAnswer,
+        extractDelta: extractAnthropicStreamDelta
+      }, signal, onDelta)
+    : extractAnthropicAnswer(await postJson(config, body, signal));
 
   return {
     ...answer,
@@ -1027,6 +1541,14 @@ async function askFollowUpWithLocalHistory(
   signal?: AbortSignal,
   onDelta?: AnswerDeltaHandler
 ): Promise<ModelAnswer> {
+  if (config.apiProviderType === 'gemini') {
+    return askFollowUpWithGeminiHistory(question, context, settings, config, signal, onDelta);
+  }
+
+  if (config.apiProviderType === 'anthropic') {
+    return askFollowUpWithAnthropicHistory(question, context, settings, config, signal, onDelta);
+  }
+
   return config.apiMode === 'responses'
     ? askFollowUpWithResponsesHistory(question, context, settings, config, signal, onDelta)
     : askFollowUpWithChatHistory(question, context, settings, config, signal, onDelta);
@@ -1049,7 +1571,7 @@ export async function askFollowUp(
   const config = resolveApiConfig(settings);
   let previousResponseError: unknown;
 
-  if (config.apiMode === 'responses' && context.previousResponseId) {
+  if (config.apiProviderType === 'openai-compatible' && config.apiMode === 'responses' && context.previousResponseId) {
     try {
       const answer = await askFollowUpWithPreviousResponse(
         trimmed,
@@ -1087,7 +1609,7 @@ export async function askFollowUp(
       throw error;
     }
 
-    if (config.reasoningEffort && isRetryableApiError(error)) {
+    if (hasOpenAiReasoning(config) && isRetryableApiError(error)) {
       const fallbackAnswer = await askFollowUpWithLocalHistory(
         trimmed,
         context,
@@ -1125,9 +1647,13 @@ export async function explainImageWithMetadata(
   throwIfAborted(signal);
   const config = resolveApiConfig(settings);
   const answer =
-    config.apiMode === 'responses'
-      ? await explainWithResponses(dataUrl, settings, config, signal, onDelta)
-      : await explainWithChatCompletions(dataUrl, settings, config, signal, onDelta);
+    config.apiProviderType === 'gemini'
+      ? await explainWithGemini(dataUrl, settings, config, signal, onDelta)
+      : config.apiProviderType === 'anthropic'
+        ? await explainWithAnthropic(dataUrl, settings, config, signal, onDelta)
+        : config.apiMode === 'responses'
+          ? await explainWithResponses(dataUrl, settings, config, signal, onDelta)
+          : await explainWithChatCompletions(dataUrl, settings, config, signal, onDelta);
 
   if (!answer.text) {
     throw new Error('第三方 API 返回了无法解析的文本结构，请确认接口模式与服务商文档一致。');
@@ -1154,11 +1680,15 @@ export async function explainRecognizedTextWithMetadata(
 
   try {
     answer =
-      config.apiMode === 'responses'
-        ? await explainTextWithResponses(trimmed, settings, config, signal, onDelta)
-        : await explainTextWithChatCompletions(trimmed, settings, config, signal, onDelta);
+      config.apiProviderType === 'gemini'
+        ? await explainTextWithGemini(trimmed, settings, config, signal, onDelta)
+        : config.apiProviderType === 'anthropic'
+          ? await explainTextWithAnthropic(trimmed, settings, config, signal, onDelta)
+          : config.apiMode === 'responses'
+            ? await explainTextWithResponses(trimmed, settings, config, signal, onDelta)
+            : await explainTextWithChatCompletions(trimmed, settings, config, signal, onDelta);
   } catch (error) {
-    if (!config.reasoningEffort || !isRetryableApiError(error)) {
+    if (!hasOpenAiReasoning(config) || !isRetryableApiError(error)) {
       throw error;
     }
 

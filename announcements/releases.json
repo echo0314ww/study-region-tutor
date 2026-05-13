@@ -1,11 +1,19 @@
 {
   "allAnnouncement": [
+    "release-v1.1.1",
     "release-v1.1.0",
     "release-v1.0.3",
     "release-v1.0.2",
     "release-v1.0.1"
   ],
   "announcements": [
+    {
+      "id": "release-v1.1.1",
+      "title": "v1.1.1 更新说明",
+      "content": "- 复制和导出入口改名为“复制答案 / 导出答案”，并移动到回答窗口底部操作区。\n- 第三方 API 兼容范围扩展到 Gemini 原生和 Claude / Anthropic 原生协议，Makelove 等聚合服务商可按协议类型配置。\n- 思考程度会按当前服务商和模型显示可用档位；Claude Opus 4.6 支持 max，Gemini 会自动使用对应的 thinking 参数。\n- 代理服务补充多 Token 和限流配置示例，方便给不同用户分配独立访问 Token。",
+      "level": "建议查看",
+      "publishedAt": "2026-05-13 02:29"
+    },
     {
       "id": "release-v1.1.0",
       "title": "v1.1.0 更新说明",

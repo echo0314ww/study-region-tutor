@@ -911,28 +911,6 @@ button:disabled {
   min-height: 0;
 }
 
-.result-export-bar {
-  flex: 0 0 auto;
-  display: grid;
-  gap: 6px;
-  padding: 8px 12px;
-  border-top: 1px solid rgba(20, 31, 25, 0.08);
-  background: rgba(247, 251, 248, 0.94);
-}
-
-.result-export-bar > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.result-export-bar span {
-  color: #607167;
-  font-size: 12px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-
 .conversation-list {
   height: 100%;
   overflow: auto;
@@ -1102,6 +1080,15 @@ button:disabled {
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.follow-up-status {
+  flex: 1 1 180px;
+  min-width: 160px;
+  color: #607167;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .result-resize-handle {

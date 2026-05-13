@@ -17,6 +17,7 @@ import type {
 } from '../../../shared/types';
 import type { FloatingPosition, GuideKind, ProxyHealthStatus, SettingsView } from '../uiTypes';
 import { BUILT_IN_PROXY_URL, CUSTOM_MODEL_VALUE, MODEL_PLACEHOLDER_VALUE } from '../constants';
+import { normalizeReasoningEffort, reasoningHelpText, reasoningOptionsFor } from '../../../shared/reasoning';
 import { hasDirectApiConfig } from '../uiUtils';
 import { DiagnosticReport } from './DiagnosticReport';
 
@@ -102,6 +103,20 @@ export function SettingsPanel({
   const isDirectSetupUnavailable = Boolean(
     !isProxyConnection && (modelListError || (apiDefaults && !hasDirectApiConfig(apiDefaults)))
   );
+  const currentProvider = useMemo(() => {
+    if (settings.providerId.trim()) {
+      return apiProviders.find((provider) => provider.id === settings.providerId);
+    }
+
+    return apiProviders.find((provider) => provider.isDefault) || apiProviders[0];
+  }, [apiProviders, settings.providerId]);
+  const currentProviderType = currentProvider?.apiProviderType || 'openai-compatible';
+  const reasoningOptions = useMemo(
+    () => reasoningOptionsFor(currentProviderType, settings.model),
+    [currentProviderType, settings.model]
+  );
+  const reasoningSelectValue = normalizeReasoningEffort(settings.reasoningEffort, currentProviderType, settings.model);
+  const reasoningStatusText = reasoningHelpText(currentProviderType, settings.model);
 
   const modelIds = useMemo(() => new Set(modelOptions.map((model) => model.id)), [modelOptions]);
   const modelSelectValue = isModelCustom
@@ -486,7 +501,7 @@ export function SettingsPanel({
           <label>
             思考程度
             <select
-              value={settings.reasoningEffort}
+              value={reasoningSelectValue}
               onChange={(event) =>
                 onSettingsChange((current) => ({
                   ...current,
@@ -494,12 +509,13 @@ export function SettingsPanel({
                 }))
               }
             >
-              <option value="off">关闭</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="xhigh">xhigh</option>
+              {reasoningOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
+            <span className="model-status">{reasoningStatusText}</span>
           </label>
           <label>
             输入方式

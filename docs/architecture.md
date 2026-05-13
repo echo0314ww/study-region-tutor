@@ -25,15 +25,19 @@ Study Region Tutor 是 Electron + React + TypeScript 桌面应用，用于学习
 2. 用户拖出题目区域后，应用先进入待确认状态。
 3. 用户点击 `确认识别` 后，渲染层通过 IPC 请求主进程裁剪屏幕区域。
 4. 主进程按显示器和缩放比例裁剪截图，并返回 PNG data URL。
-5. 默认模式直接把图片发送给当前 OpenAI-compatible 服务商；如果图片接口失败，会退回本地 OCR 预览。
+5. 默认模式直接把图片发送给当前第三方 API 服务商；OpenAI-compatible、Gemini 原生和 Anthropic 原生由主进程或代理服务按 provider 类型转换请求格式。
 6. 本地 OCR 模式会先展示可编辑识别文本；用户确认后才发送文本讲解请求。
 7. 讲解成功后创建本题内存会话，后续追问只发送题目上下文、历史问答和新问题，不重新发送截图。
-8. 结果面板可以复制或导出当前题目的 Markdown 学习记录。
+8. 结果面板底部可以复制或导出当前题目的答案记录，底层仍以 Markdown 文件格式保存。
 
 ## API 连接模式
 
 - 本地直连：打包应用读取 `%APPDATA%\study-region-tutor\.env.local`、同目录 `.env` 或环境变量。开发运行时还会优先读取项目根目录 `.env.local` / `.env`。
 - 代理服务：用户端只保存代理地址和代理 Token，第三方 API Key 留在代理服务所在电脑或服务器。
+
+服务商配置通过 `AI_API_TYPE` 或 `AI_PROVIDER_<ID>_API_TYPE` 区分协议，取值为 `openai-compatible`、`gemini` 或 `anthropic`。`openai-compatible` 继续使用 `AI_API_MODE` / `AI_PROVIDER_<ID>_API_MODE` 选择 Chat Completions 或 Responses；Gemini 和 Anthropic 忽略接口模式并走原生协议。
+
+思考程度配置由 `src/shared/reasoning.ts` 统一维护，设置面板只展示当前服务商和模型可用的档位。主进程 `src/main/openaiClient.ts` 和代理服务 `server/proxy-server.mjs` 都会在发起请求前归一化：OpenAI-compatible 使用 `reasoning_effort` / `reasoning.effort`，Claude 4.6/4.7/Mythos 使用 adaptive thinking + `output_config.effort`，旧 Claude 模型使用 `thinking.budget_tokens`，Gemini 3 使用 `thinkingLevel`，Gemini 2.5 使用 `thinkingBudget`。
 
 代理服务公开接口不需要 Token：
 
@@ -58,7 +62,7 @@ API 代理接口需要 Token：
 - API 请求和追问。
 - 设置、服务商、模型列表和连接模式。
 - 一键诊断。
-- Markdown 导出。
+- 答案复制与 Markdown 导出。
 - 自动更新。
 
 ## 隐私与安全约定
@@ -89,5 +93,6 @@ Windows 正式发布通过 GitHub Actions 完成，不在本机手动发布 GitH
 - `docs/codex-handoff.md`：新账号、新对话或新 Codex 会话接手项目时的启动顺序和协作规范。
 - `docs/architecture.md`：当前架构边界和模块职责。
 - `docs/release-checklist.md`：功能完成和发布前检查清单。
+- `docs/proxy-config.example.env`：代理服务、多 Token、限流和多协议 API 服务商的配置模板。
 - `docs/dev-log/YYYY-MM-DD.md`：重要实施过程记录。
 - `announcements/releases.json`：可推送给客户端的版本更新公告。

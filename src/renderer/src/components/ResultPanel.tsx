@@ -1,4 +1,4 @@
-import { AlertCircle, BookOpen, Check, Clipboard, Download, Loader2, RefreshCw, X } from 'lucide-react';
+import { AlertCircle, BookOpen, Check, Loader2, RefreshCw, X } from 'lucide-react';
 import type { PointerEvent } from 'react';
 import { useMemo } from 'react';
 import type { OcrPreviewResult, RegionBounds } from '../../../shared/types';
@@ -34,8 +34,8 @@ export interface ResultPanelProps {
   onStartNextQuestion: () => void;
   onEndCurrentQuestion: () => void;
   onRetry: () => void;
-  onCopyMarkdown: () => void;
-  onExportMarkdown: () => void;
+  onCopyAnswer: () => void;
+  onExportAnswer: () => void;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
 }
@@ -65,8 +65,8 @@ export function ResultPanel({
   onStartNextQuestion,
   onEndCurrentQuestion,
   onRetry,
-  onCopyMarkdown,
-  onExportMarkdown,
+  onCopyAnswer,
+  onExportAnswer,
   onPointerEnter,
   onPointerLeave
 }: ResultPanelProps): JSX.Element {
@@ -144,21 +144,6 @@ export function ResultPanel({
           isLoading={isLoading}
         />
       )}
-      {!ocrPreview && !isLoading && !error && canExport && (
-        <div className="result-export-bar">
-          <div>
-            <button className="secondary-button" type="button" onClick={onCopyMarkdown}>
-              <Clipboard size={16} />
-              复制 Markdown
-            </button>
-            <button className="secondary-button" type="button" onClick={onExportMarkdown}>
-              <Download size={16} />
-              导出 Markdown
-            </button>
-          </div>
-          {exportStatus && <span>{exportStatus}</span>}
-        </div>
-      )}
       {!ocrPreview && isLoading && !progressText && conversationTurns.length === 0 && <div className="empty-state">正在分析截图...</div>}
       {!ocrPreview && !isLoading && !error && stoppedMessage && <div className="empty-state">{stoppedMessage}</div>}
       {!ocrPreview && !isLoading && error && (
@@ -181,6 +166,10 @@ export function ResultPanel({
           onSend={onSendFollowUp}
           onNextQuestion={onStartNextQuestion}
           onEndQuestion={onEndCurrentQuestion}
+          canExport={canExport}
+          exportStatus={exportStatus}
+          onCopyAnswer={onCopyAnswer}
+          onExportAnswer={onExportAnswer}
         />
       )}
       {HANDLE_NAMES.map((handle) => (

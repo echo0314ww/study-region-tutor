@@ -4,6 +4,20 @@
 
 暂无。
 
+## v1.1.1 - 2026-05-13
+
+### 改进
+
+- 结果面板的 `复制 Markdown` / `导出 Markdown` 改为 `复制答案` / `导出答案`，并移动到底部追问动作区，与 `发送追问`、`截图下一题` 和 `结束本题` 并排。
+- 第三方 API 服务商新增 `AI_API_TYPE` / `AI_PROVIDER_<ID>_API_TYPE`，支持 `openai-compatible`、`gemini`、`anthropic` 三种协议；本地直连和代理服务均可使用 Gemini 原生与 Anthropic 原生请求格式。
+- 思考程度改为按服务商和模型动态适配：OpenAI-compatible 使用 `reasoning_effort` / `reasoning.effort`，Claude 4.6 可选择 `max` 并映射到 `output_config.effort`，Gemini 3 / 2.5 分别映射到 `thinkingLevel` / `thinkingBudget`。
+- 代理服务文档和本机配置补充多具名 Token 与限流示例，便于按用户分配访问额度。
+
+### 维护
+
+- 新增 Makelove provider 兼容测试，覆盖 Gemini 和 Anthropic 原生协议的请求地址、鉴权头和请求体。
+- 新增思考程度映射测试，覆盖 OpenAI-compatible `minimal`、Claude Opus 4.6 `max` 和 Gemini 2.5 `thinkingBudget`。
+
 ## v1.1.0 - 2026-05-12
 
 ### 新增

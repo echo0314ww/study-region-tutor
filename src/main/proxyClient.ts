@@ -2,7 +2,7 @@ import type {
   ApiProviderOption,
   ModelListResult,
   QuestionSessionTurn,
-  ReasoningEffort,
+  ReasoningEffortSetting,
   TutorSettings
 } from '../shared/types';
 import { throwIfAborted } from './cancel';
@@ -116,8 +116,8 @@ function providerId(settings: TutorSettings): string {
   return id;
 }
 
-function reasoningEffort(settings: TutorSettings): ReasoningEffort | undefined {
-  return settings.reasoningEffort === 'off' ? undefined : settings.reasoningEffort;
+function reasoningEffort(settings: TutorSettings): ReasoningEffortSetting {
+  return settings.reasoningEffort;
 }
 
 async function proxyJson<T>(settings: TutorSettings, path: string, body?: unknown): Promise<T> {

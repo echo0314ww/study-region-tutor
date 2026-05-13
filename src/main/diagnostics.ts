@@ -109,7 +109,7 @@ async function diagnoseDirect(settings: TutorSettings, localEnvPath: string, dee
           models.models.length > 0
             ? `模型列表可用，共返回 ${models.models.length} 个模型。`
             : '模型列表请求成功，但服务商没有返回可选模型。',
-        cause: models.models.length > 0 ? undefined : '部分 OpenAI-compatible 服务商不完整支持 /models。',
+        cause: models.models.length > 0 ? undefined : '部分第三方服务商不完整支持模型列表接口，或返回格式与当前协议不一致。',
         solution: models.models.length > 0 ? undefined : '可以在模型下拉框选择“手动填写模型名”，填入服务商文档提供的模型 ID。'
       })
     );
@@ -120,7 +120,7 @@ async function diagnoseDirect(settings: TutorSettings, localEnvPath: string, dee
         title: '模型列表',
         status: 'fail',
         summary: '模型列表请求失败。',
-        cause: '常见原因包括 Base URL 写错、缺少 /v1、API Key 失效、服务商不支持 /models，或接口模式配置不匹配。',
+        cause: '常见原因包括 Base URL 写错、缺少 /v1 或 /v1beta、API Key 失效、服务商不支持 /models，或 API_TYPE / API_MODE 配置不匹配。',
         solution:
           '先确认 .env.local 中的 Base URL 是否和服务商文档一致，再检查 API Key 是否有效；如果 /models 不可用，可手动填写模型名后继续使用。',
         technicalDetail: errorText(error)

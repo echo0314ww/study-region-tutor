@@ -71,6 +71,16 @@ function parseApiMode(value) {
   return value === 'responses' ? 'responses' : 'chat-completions';
 }
 
+function parseApiProviderType(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+
+  if (normalized === 'gemini' || normalized === 'anthropic') {
+    return normalized;
+  }
+
+  return 'openai-compatible';
+}
+
 function parseBoolean(value, fallback = true) {
   const normalized = String(value || '').trim().toLowerCase();
 
@@ -242,6 +252,7 @@ function loadConfig() {
       name: String(env[`AI_PROVIDER_${key}_NAME`] || id).trim(),
       baseUrl: normalizeBaseUrl(baseUrl),
       apiMode: parseApiMode(String(env[`AI_PROVIDER_${key}_API_MODE`] || env.AI_API_MODE || '')),
+      apiProviderType: parseApiProviderType(String(env[`AI_PROVIDER_${key}_API_TYPE`] || env.AI_API_TYPE || '')),
       apiKey,
       hasApiKey: Boolean(apiKey)
     });
@@ -257,6 +268,7 @@ function loadConfig() {
         name: 'Default API',
         baseUrl: normalizeBaseUrl(baseUrl),
         apiMode: parseApiMode(String(env.AI_API_MODE || '')),
+        apiProviderType: parseApiProviderType(String(env.AI_API_TYPE || '')),
         apiKey,
         hasApiKey: Boolean(apiKey)
       });
@@ -345,6 +357,7 @@ function providerSummary(provider) {
     name: provider.name,
     baseUrl: provider.baseUrl,
     apiMode: provider.apiMode,
+    apiProviderType: provider.apiProviderType,
     hasApiKey: provider.hasApiKey,
     isDefault: provider.isDefault
   };
@@ -367,7 +380,25 @@ function getProvider(providerId) {
   return provider;
 }
 
-function endpointFor(provider) {
+function encodePathSegment(value) {
+  return String(value).split('/').map(encodeURIComponent).join('/');
+}
+
+function geminiModelPath(model) {
+  return encodePathSegment(String(model || '').trim().replace(/^models\//, ''));
+}
+
+function endpointFor(provider, model, stream = false) {
+  if (provider.apiProviderType === 'gemini') {
+    const action = stream ? 'streamGenerateContent' : 'generateContent';
+    const suffix = stream ? '?alt=sse' : '';
+    return `${provider.baseUrl}/models/${geminiModelPath(model)}:${action}${suffix}`;
+  }
+
+  if (provider.apiProviderType === 'anthropic') {
+    return provider.baseUrl.endsWith('/messages') ? provider.baseUrl : `${provider.baseUrl}/messages`;
+  }
+
   if (provider.apiMode === 'responses') {
     return provider.baseUrl.endsWith('/responses') ? provider.baseUrl : `${provider.baseUrl}/responses`;
   }
@@ -377,9 +408,17 @@ function endpointFor(provider) {
     : `${provider.baseUrl}/chat/completions`;
 }
 
-function modelsEndpointFor(baseUrl) {
+function modelsEndpointFor(baseUrl, apiProviderType) {
   if (baseUrl.endsWith('/models')) {
     return baseUrl;
+  }
+
+  if (apiProviderType === 'anthropic' && baseUrl.endsWith('/messages')) {
+    return `${baseUrl.slice(0, -'/messages'.length)}/models`;
+  }
+
+  if (apiProviderType === 'gemini' || apiProviderType === 'anthropic') {
+    return `${baseUrl}/models`;
   }
 
   if (baseUrl.endsWith('/responses')) {
@@ -393,14 +432,25 @@ function modelsEndpointFor(baseUrl) {
   return `${baseUrl}/models`;
 }
 
-function modelsEndpointCandidates(baseUrl) {
-  const candidates = [modelsEndpointFor(baseUrl)];
+function modelsEndpointCandidates(baseUrl, apiProviderType) {
+  const candidates = [modelsEndpointFor(baseUrl, apiProviderType)];
 
   try {
     const url = new URL(baseUrl);
     const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
 
-    if (normalizedPath === '/' || normalizedPath === '/responses' || normalizedPath === '/chat/completions') {
+    if (apiProviderType === 'gemini' && normalizedPath === '/') {
+      candidates.push(`${url.origin}/v1beta/models`);
+    }
+
+    if (apiProviderType === 'anthropic' && normalizedPath === '/') {
+      candidates.push(`${url.origin}/v1/models`);
+    }
+
+    if (
+      apiProviderType === 'openai-compatible' &&
+      (normalizedPath === '/' || normalizedPath === '/responses' || normalizedPath === '/chat/completions')
+    ) {
       candidates.push(`${url.origin}/v1/models`);
     }
   } catch {
@@ -531,6 +581,81 @@ function extractChatStreamDelta(data) {
   return textFromContentParts(firstChoice.delta.content);
 }
 
+function extractGeminiText(data) {
+  if (!isRecord(data) || !Array.isArray(data.candidates)) {
+    return '';
+  }
+
+  const parts = [];
+
+  for (const candidate of data.candidates) {
+    if (!isRecord(candidate) || !isRecord(candidate.content) || !Array.isArray(candidate.content.parts)) {
+      continue;
+    }
+
+    for (const part of candidate.content.parts) {
+      if (isRecord(part) && typeof part.text === 'string') {
+        parts.push(part.text);
+      }
+    }
+  }
+
+  return parts.join('').trim();
+}
+
+function extractGeminiAnswer(data) {
+  return {
+    text: extractGeminiText(data)
+  };
+}
+
+function extractGeminiStreamDelta(data) {
+  return extractGeminiText(data);
+}
+
+function extractAnthropicText(data) {
+  if (!isRecord(data) || !Array.isArray(data.content)) {
+    return '';
+  }
+
+  return data.content
+    .map((part) => (isRecord(part) && typeof part.text === 'string' ? part.text : ''))
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function extractAnthropicAnswer(data) {
+  return {
+    text: extractAnthropicText(data)
+  };
+}
+
+function extractAnthropicStreamDelta(data) {
+  if (!isRecord(data)) {
+    return '';
+  }
+
+  if (isRecord(data.delta) && typeof data.delta.text === 'string') {
+    return data.delta.text;
+  }
+
+  return '';
+}
+
+function imageDataFromDataUrl(dataUrl) {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(String(dataUrl || ''));
+
+  if (!match) {
+    throw new Error('Invalid image data URL for the selected API provider.');
+  }
+
+  return {
+    mimeType: match[1],
+    data: match[2]
+  };
+}
+
 function extractApiErrorMessage(data) {
   if (isRecord(data) && isRecord(data.error) && typeof data.error.message === 'string') {
     return data.error.message;
@@ -567,17 +692,38 @@ function extractStreamFinalAnswer(data, extractAnswer) {
   return extractAnswer(data);
 }
 
+function requestHeadersFor(provider, accept = 'application/json', includeContentType = true) {
+  const headers = {
+    Accept: accept
+  };
+
+  if (includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (provider.apiProviderType === 'gemini') {
+    headers['x-goog-api-key'] = provider.apiKey;
+    return headers;
+  }
+
+  if (provider.apiProviderType === 'anthropic') {
+    headers['x-api-key'] = provider.apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+    return headers;
+  }
+
+  headers.Authorization = `Bearer ${provider.apiKey}`;
+  return headers;
+}
+
 async function listModels(provider) {
-  const candidates = modelsEndpointCandidates(provider.baseUrl);
+  const candidates = modelsEndpointCandidates(provider.baseUrl, provider.apiProviderType);
   let lastError;
 
   for (const endpoint of candidates) {
     try {
       const response = await fetch(endpoint, {
-        headers: {
-          Authorization: `Bearer ${provider.apiKey}`,
-          Accept: 'application/json'
-        }
+        headers: requestHeadersFor(provider, 'application/json', false)
       });
       const text = await response.text();
       const data = text ? JSON.parse(text) : undefined;
@@ -596,10 +742,102 @@ async function listModels(provider) {
   throw new Error(`Model list request failed. Tried ${candidates.join(', ')}. Last error: ${errorMessage(lastError)}`);
 }
 
-function withReasoning(body, payload) {
+function modelKey(model) {
+  return String(model || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+
+function isAnthropicAdaptiveEffortModel(model) {
+  const key = modelKey(model);
+
+  return (
+    key.includes('opus-4-6') ||
+    key.includes('opus-4-7') ||
+    key.includes('sonnet-4-6') ||
+    key.includes('mythos')
+  );
+}
+
+function normalizeReasoningEffort(provider, payload) {
+  const value = String(payload.reasoningEffort || 'off');
+  const key = modelKey(payload.model);
+  const is = (...values) => values.includes(value);
+
+  if (provider.apiProviderType === 'anthropic') {
+    if (is('off', 'low', 'medium', 'high')) {
+      return value;
+    }
+
+    if (key.includes('opus-4-7') && is('xhigh', 'max')) {
+      return value;
+    }
+
+    if ((key.includes('opus-4-6') || key.includes('sonnet-4-6') || key.includes('mythos')) && is('xhigh', 'max')) {
+      return 'max';
+    }
+
+    return value === 'minimal' ? 'low' : 'high';
+  }
+
+  if (provider.apiProviderType === 'gemini') {
+    if (key.includes('gemini-3')) {
+      if (key.includes('flash') && is('off', 'minimal', 'low', 'medium', 'high')) {
+        return value;
+      }
+
+      if (is('off', 'low', 'high')) {
+        return value;
+      }
+
+      return value === 'off' ? 'off' : 'high';
+    }
+
+    if (key.includes('gemini-2-5') || key.includes('gemini-2.5')) {
+      if (is('off', 'low', 'medium', 'high', 'max')) {
+        return value;
+      }
+
+      if (value === 'minimal') {
+        return 'low';
+      }
+
+      return value === 'xhigh' ? 'max' : 'high';
+    }
+
+    return 'off';
+  }
+
+  if (is('off', 'minimal', 'low', 'medium', 'high', 'xhigh')) {
+    return value;
+  }
+
+  return value === 'max' ? 'xhigh' : 'low';
+}
+
+function withNormalizedReasoning(provider, payload) {
+  return {
+    ...payload,
+    reasoningEffort: normalizeReasoningEffort(provider, payload)
+  };
+}
+
+function openAiReasoningEffort(payload) {
   const effort = payload.reasoningEffort;
 
-  if (!effort || effort === 'off') {
+  if (!effort || effort === 'off' || effort === 'max') {
+    return undefined;
+  }
+
+  return effort;
+}
+
+function hasOpenAiReasoning(provider, payload) {
+  return provider.apiProviderType === 'openai-compatible' && Boolean(openAiReasoningEffort(payload));
+}
+
+function withReasoning(body, payload) {
+  const effort = openAiReasoningEffort(payload);
+
+  if (!effort) {
     return body;
   }
 
@@ -610,9 +848,9 @@ function withReasoning(body, payload) {
 }
 
 function withChatReasoning(body, payload) {
-  const effort = payload.reasoningEffort;
+  const effort = openAiReasoningEffort(payload);
 
-  if (!effort || effort === 'off') {
+  if (!effort) {
     return body;
   }
 
@@ -622,8 +860,190 @@ function withChatReasoning(body, payload) {
   };
 }
 
+function geminiThinkingConfig(payload) {
+  const effort = payload.reasoningEffort;
+  const model = String(payload.model || '').toLowerCase();
+
+  if (!effort || effort === 'off') {
+    return undefined;
+  }
+
+  if (model.includes('gemini-3')) {
+    const level = ['minimal', 'low', 'medium', 'high'].includes(effort) ? effort : 'high';
+    return { thinkingLevel: level };
+  }
+
+  if (model.includes('gemini-2.5') || model.includes('gemini-2-5')) {
+    const budgets = {
+      minimal: 512,
+      low: 1024,
+      medium: 4096,
+      high: 8192,
+      xhigh: 16384,
+      max: 24576
+    };
+
+    return { thinkingBudget: budgets[effort] || 8192 };
+  }
+
+  return undefined;
+}
+
+function withGeminiThinking(body, payload) {
+  const thinkingConfig = geminiThinkingConfig(payload);
+
+  return thinkingConfig
+    ? {
+        ...body,
+        generationConfig: {
+          thinkingConfig
+        }
+      }
+    : body;
+}
+
+function anthropicEffort(payload) {
+  const effort = payload.reasoningEffort;
+
+  return !effort || effort === 'off' || effort === 'minimal' ? undefined : effort;
+}
+
+function anthropicMaxTokens(effort) {
+  switch (effort) {
+    case 'max':
+      return 20000;
+    case 'xhigh':
+      return 16000;
+    case 'high':
+      return 12000;
+    case 'medium':
+      return 8192;
+    case 'low':
+    default:
+      return 4096;
+  }
+}
+
+function anthropicBudgetTokens(effort) {
+  switch (effort) {
+    case 'max':
+      return 16000;
+    case 'xhigh':
+      return 12000;
+    case 'high':
+      return 8000;
+    case 'medium':
+      return 4096;
+    case 'low':
+    default:
+      return 1024;
+  }
+}
+
+function withAnthropicThinking(body, payload) {
+  const effort = anthropicEffort(payload);
+  const base = {
+    ...body,
+    max_tokens: anthropicMaxTokens(effort)
+  };
+
+  if (!effort) {
+    return base;
+  }
+
+  if (isAnthropicAdaptiveEffortModel(payload.model)) {
+    return {
+      ...base,
+      thinking: {
+        type: 'adaptive',
+        display: 'omitted'
+      },
+      output_config: {
+        effort
+      }
+    };
+  }
+
+  return {
+    ...base,
+    thinking: {
+      type: 'enabled',
+      budget_tokens: anthropicBudgetTokens(effort)
+    }
+  };
+}
+
+function buildGeminiExplainBody(payload) {
+  const task = payload.task || {};
+  const parts = [];
+
+  if (task.type === 'image') {
+    const image = imageDataFromDataUrl(task.imageDataUrl);
+    parts.push({ text: task.userPrompt });
+    parts.push({
+      inline_data: {
+        mime_type: image.mimeType,
+        data: image.data
+      }
+    });
+  } else {
+    parts.push({ text: task.textPrompt });
+  }
+
+  return withGeminiThinking({
+    system_instruction: {
+      parts: [{ text: task.instructions }]
+    },
+    contents: [
+      {
+        role: 'user',
+        parts
+      }
+    ]
+  }, payload);
+}
+
+function buildAnthropicExplainBody(payload) {
+  const task = payload.task || {};
+  const content = [];
+
+  if (task.type === 'image') {
+    const image = imageDataFromDataUrl(task.imageDataUrl);
+    content.push({ type: 'text', text: task.userPrompt });
+    content.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: image.mimeType,
+        data: image.data
+      }
+    });
+  } else {
+    content.push({ type: 'text', text: task.textPrompt });
+  }
+
+  return withAnthropicThinking({
+    model: payload.model,
+    system: task.instructions,
+    messages: [
+      {
+        role: 'user',
+        content
+      }
+    ]
+  }, payload);
+}
+
 function buildExplainBody(provider, payload) {
   const task = payload.task || {};
+
+  if (provider.apiProviderType === 'gemini') {
+    return buildGeminiExplainBody(payload);
+  }
+
+  if (provider.apiProviderType === 'anthropic') {
+    return buildAnthropicExplainBody(payload);
+  }
 
   if (provider.apiMode === 'responses') {
     if (task.type === 'image') {
@@ -686,7 +1106,42 @@ function buildExplainBody(provider, payload) {
   );
 }
 
+function buildGeminiFollowUpBody(payload) {
+  return withGeminiThinking({
+    system_instruction: {
+      parts: [{ text: payload.instructions }]
+    },
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: payload.historyPrompt }]
+      }
+    ]
+  }, payload);
+}
+
+function buildAnthropicFollowUpBody(payload) {
+  return withAnthropicThinking({
+    model: payload.model,
+    system: payload.instructions,
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: payload.historyPrompt }]
+      }
+    ]
+  }, payload);
+}
+
 function buildFollowUpBody(provider, payload, usePreviousResponse) {
+  if (provider.apiProviderType === 'gemini') {
+    return buildGeminiFollowUpBody(payload);
+  }
+
+  if (provider.apiProviderType === 'anthropic') {
+    return buildAnthropicFollowUpBody(payload);
+  }
+
   if (provider.apiMode === 'responses') {
     return withReasoning(
       {
@@ -712,6 +1167,20 @@ function buildFollowUpBody(provider, payload, usePreviousResponse) {
 }
 
 function streamParsers(provider) {
+  if (provider.apiProviderType === 'gemini') {
+    return {
+      extractAnswer: extractGeminiAnswer,
+      extractDelta: extractGeminiStreamDelta
+    };
+  }
+
+  if (provider.apiProviderType === 'anthropic') {
+    return {
+      extractAnswer: extractAnthropicAnswer,
+      extractDelta: extractAnthropicStreamDelta
+    };
+  }
+
   return provider.apiMode === 'responses'
     ? {
         extractAnswer: extractResponsesAnswer,
@@ -1092,16 +1561,23 @@ function readJsonBody(req) {
   });
 }
 
-async function postUpstreamStream(provider, body, onDelta, signal) {
+function streamRequestBodyFor(provider, body) {
+  if (provider.apiProviderType === 'gemini') {
+    return body;
+  }
+
+  return {
+    ...body,
+    stream: true
+  };
+}
+
+async function postUpstreamStream(provider, body, onDelta, signal, model = body.model) {
   const parsers = streamParsers(provider);
-  const response = await fetch(endpointFor(provider), {
+  const response = await fetch(endpointFor(provider, model, true), {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${provider.apiKey}`,
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream'
-    },
-    body: JSON.stringify({ ...body, stream: true }),
+    headers: requestHeadersFor(provider, 'text/event-stream'),
+    body: JSON.stringify(streamRequestBodyFor(provider, body)),
     signal
   });
 
@@ -1250,20 +1726,27 @@ function isRetryable(error) {
 
 async function postWithOptionalReasoningFallback(provider, payload, bodyFactory, onDelta, signal) {
   let emittedDelta = false;
+  const normalizedPayload = withNormalizedReasoning(provider, payload);
 
   try {
-    return await postUpstreamStream(provider, bodyFactory(payload), (delta) => {
+    return await postUpstreamStream(provider, bodyFactory(normalizedPayload), (delta) => {
       if (delta) {
         emittedDelta = true;
         onDelta(delta);
       }
-    }, signal);
+    }, signal, normalizedPayload.model);
   } catch (error) {
-    if (!payload.reasoningEffort || emittedDelta || !isRetryable(error)) {
+    if (!hasOpenAiReasoning(provider, normalizedPayload) || emittedDelta || !isRetryable(error)) {
       throw error;
     }
 
-    return postUpstreamStream(provider, bodyFactory({ ...payload, reasoningEffort: undefined }), onDelta, signal);
+    return postUpstreamStream(
+      provider,
+      bodyFactory({ ...normalizedPayload, reasoningEffort: 'off' }),
+      onDelta,
+      signal,
+      normalizedPayload.model
+    );
   }
 }
 
@@ -1316,7 +1799,7 @@ async function handleFollowUpStream(res, payload) {
     let answer;
     let emittedDelta = false;
 
-    if (provider.apiMode === 'responses' && payload.previousResponseId) {
+    if (provider.apiProviderType === 'openai-compatible' && provider.apiMode === 'responses' && payload.previousResponseId) {
       try {
         answer = await postWithOptionalReasoningFallback(
           provider,

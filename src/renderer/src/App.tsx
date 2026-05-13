@@ -349,7 +349,7 @@ export function App(): JSX.Element {
 
   const copyTextToClipboard = useCallback((text: string): void => {
     if (!navigator.clipboard?.writeText) {
-      setExportStatus('当前系统剪贴板不可用，请使用导出 Markdown。');
+      setExportStatus('当前系统剪贴板不可用，请使用导出答案。');
       return;
     }
 
@@ -415,7 +415,7 @@ export function App(): JSX.Element {
       const response = await window.studyTutor.exportConversation(buildExportRequest());
 
       if (!response.canceled) {
-        setExportStatus(response.filePath ? `已导出：${response.filePath}` : '已导出 Markdown。');
+        setExportStatus(response.filePath ? `已导出：${response.filePath}` : '已导出答案。');
       }
     } catch (caught) {
       setExportStatus(caught instanceof Error ? caught.message : String(caught));
@@ -1257,8 +1257,8 @@ export function App(): JSX.Element {
           onStartNextQuestion={() => void startNextQuestion()}
           onEndCurrentQuestion={() => void endCurrentQuestion()}
           onRetry={retry}
-          onCopyMarkdown={copyConversationMarkdown}
-          onExportMarkdown={() => void exportConversationMarkdown()}
+          onCopyAnswer={copyConversationMarkdown}
+          onExportAnswer={() => void exportConversationMarkdown()}
           onPointerEnter={enterInteractiveSurface}
           onPointerLeave={leaveInteractiveSurface}
         />

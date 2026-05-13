@@ -51,16 +51,24 @@ afterEach(() => {
   delete process.env.AI_API_KEY;
   delete process.env.AI_BASE_URL;
   delete process.env.AI_API_MODE;
+  delete process.env.AI_API_TYPE;
   delete process.env.AI_PROVIDERS;
   delete process.env.AI_DEFAULT_PROVIDER;
   delete process.env.AI_PROVIDER_TCDMX_NAME;
   delete process.env.AI_PROVIDER_TCDMX_BASE_URL;
   delete process.env.AI_PROVIDER_TCDMX_API_KEY;
   delete process.env.AI_PROVIDER_TCDMX_API_MODE;
+  delete process.env.AI_PROVIDER_TCDMX_API_TYPE;
   delete process.env.AI_PROVIDER_XIEAPI_NAME;
   delete process.env.AI_PROVIDER_XIEAPI_BASE_URL;
   delete process.env.AI_PROVIDER_XIEAPI_API_KEY;
   delete process.env.AI_PROVIDER_XIEAPI_API_MODE;
+  delete process.env.AI_PROVIDER_XIEAPI_API_TYPE;
+  delete process.env.AI_PROVIDER_MAKELOVE_NAME;
+  delete process.env.AI_PROVIDER_MAKELOVE_BASE_URL;
+  delete process.env.AI_PROVIDER_MAKELOVE_API_KEY;
+  delete process.env.AI_PROVIDER_MAKELOVE_API_MODE;
+  delete process.env.AI_PROVIDER_MAKELOVE_API_TYPE;
   delete process.env.TUTOR_API_CONNECTION_MODE;
   delete process.env.TUTOR_PROXY_URL;
   delete process.env.TUTOR_PROXY_TOKEN;
@@ -73,7 +81,8 @@ describe('resolveApiConfig', () => {
       baseUrl: 'https://third-party.example/v1',
       model: 'vision-model',
       apiMode: 'chat-completions',
-      reasoningEffort: undefined
+      apiProviderType: 'openai-compatible',
+      reasoningEffort: 'off'
     });
   });
 
@@ -95,6 +104,7 @@ describe('resolveApiConfig', () => {
       baseUrl: 'https://provider.example/api/v1',
       model: 'vision-model',
       apiMode: 'responses',
+      apiProviderType: 'openai-compatible',
       reasoningEffort: 'xhigh'
     });
   });
@@ -124,7 +134,8 @@ describe('resolveApiConfig', () => {
       baseUrl: 'https://tcdmx.com',
       model: 'vision-model',
       apiMode: 'responses',
-      reasoningEffort: undefined,
+      apiProviderType: 'openai-compatible',
+      reasoningEffort: 'off',
       providerId: 'tcdmx',
       providerName: 'TCDMX'
     });
@@ -138,6 +149,7 @@ describe('resolveApiConfig', () => {
         name: 'TCDMX',
         baseUrl: 'https://tcdmx.com',
         apiMode: 'responses',
+        apiProviderType: 'openai-compatible',
         hasApiKey: true,
         isDefault: false
       },
@@ -146,6 +158,7 @@ describe('resolveApiConfig', () => {
         name: 'Xie API',
         baseUrl: 'https://xie.example/v1',
         apiMode: 'chat-completions',
+        apiProviderType: 'openai-compatible',
         hasApiKey: true,
         isDefault: true
       }
@@ -406,6 +419,7 @@ describe('resolveApiConfig', () => {
           name: 'Default API',
           baseUrl: 'https://provider.example/api/v1',
           apiMode: 'responses',
+          apiProviderType: 'openai-compatible',
           hasApiKey: true,
           isDefault: true
         }
@@ -520,6 +534,219 @@ describe('resolveApiConfig', () => {
         })
       })
     );
+  });
+
+  it('uses Gemini native request shape for a Makelove provider configured as gemini', async () => {
+    process.env.AI_PROVIDERS = 'makelove';
+    process.env.AI_PROVIDER_MAKELOVE_NAME = 'Makelove';
+    process.env.AI_PROVIDER_MAKELOVE_BASE_URL = 'https://makelove.example/gemini/v1beta';
+    process.env.AI_PROVIDER_MAKELOVE_API_KEY = 'makelove-gemini-key';
+    process.env.AI_PROVIDER_MAKELOVE_API_TYPE = 'gemini';
+
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => {
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: 'gemini ok' }] } }]
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      explainRecognizedTextWithMetadata('题目文本', {
+        ...baseSettings,
+        providerId: 'makelove',
+        apiBaseUrl: '',
+        apiKey: '',
+        model: 'models/gemini-1.5-pro',
+        apiMode: 'env'
+      })
+    ).resolves.toEqual({
+      text: 'gemini ok'
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://makelove.example/gemini/v1beta/models/gemini-1.5-pro:generateContent',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'x-goog-api-key': 'makelove-gemini-key'
+        })
+      })
+    );
+    expect(body).toHaveProperty('system_instruction');
+    expect(body).toHaveProperty('contents');
+    expect(body).not.toHaveProperty('messages');
+  });
+
+  it('uses Anthropic native request shape for a Makelove provider configured as anthropic', async () => {
+    process.env.AI_PROVIDERS = 'makelove';
+    process.env.AI_PROVIDER_MAKELOVE_NAME = 'Makelove';
+    process.env.AI_PROVIDER_MAKELOVE_BASE_URL = 'https://makelove.example/anthropic/v1';
+    process.env.AI_PROVIDER_MAKELOVE_API_KEY = 'makelove-anthropic-key';
+    process.env.AI_PROVIDER_MAKELOVE_API_TYPE = 'anthropic';
+
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => {
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'anthropic ok' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      explainRecognizedTextWithMetadata('题目文本', {
+        ...baseSettings,
+        providerId: 'makelove',
+        apiBaseUrl: '',
+        apiKey: '',
+        model: 'claude-3-5-sonnet-latest',
+        apiMode: 'env'
+      })
+    ).resolves.toEqual({
+      text: 'anthropic ok'
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://makelove.example/anthropic/v1/messages',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'x-api-key': 'makelove-anthropic-key',
+          'anthropic-version': '2023-06-01'
+        })
+      })
+    );
+    expect(body).toMatchObject({
+      model: 'claude-3-5-sonnet-latest',
+      max_tokens: 4096
+    });
+    expect(body).toHaveProperty('messages');
+    expect(body).not.toHaveProperty('input');
+  });
+
+  it('sends OpenAI-compatible reasoning effort only for supported effort values', async () => {
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => {
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'reasoning ok' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      explainRecognizedTextWithMetadata('棰樼洰鏂囨湰', {
+        ...baseSettings,
+        reasoningEffort: 'minimal'
+      })
+    ).resolves.toEqual({
+      text: 'reasoning ok'
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    expect(body.reasoning_effort).toBe('minimal');
+  });
+
+  it('maps Claude Opus 4.6 max thinking to Anthropic adaptive effort', async () => {
+    process.env.AI_PROVIDERS = 'makelove';
+    process.env.AI_PROVIDER_MAKELOVE_NAME = 'Makelove';
+    process.env.AI_PROVIDER_MAKELOVE_BASE_URL = 'https://makelove.example/anthropic/v1';
+    process.env.AI_PROVIDER_MAKELOVE_API_KEY = 'makelove-anthropic-key';
+    process.env.AI_PROVIDER_MAKELOVE_API_TYPE = 'anthropic';
+
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => {
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'claude thinking ok' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      explainRecognizedTextWithMetadata('棰樼洰鏂囨湰', {
+        ...baseSettings,
+        providerId: 'makelove',
+        apiBaseUrl: '',
+        apiKey: '',
+        model: 'claude-opus-4-6',
+        apiMode: 'env',
+        reasoningEffort: 'max'
+      })
+    ).resolves.toEqual({
+      text: 'claude thinking ok'
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      max_tokens: 20000,
+      thinking: {
+        type: 'adaptive',
+        display: 'omitted'
+      },
+      output_config: {
+        effort: 'max'
+      }
+    });
+  });
+
+  it('maps Gemini 2.5 max thinking to thinkingBudget', async () => {
+    process.env.AI_PROVIDERS = 'makelove';
+    process.env.AI_PROVIDER_MAKELOVE_NAME = 'Makelove';
+    process.env.AI_PROVIDER_MAKELOVE_BASE_URL = 'https://makelove.example/gemini/v1beta';
+    process.env.AI_PROVIDER_MAKELOVE_API_KEY = 'makelove-gemini-key';
+    process.env.AI_PROVIDER_MAKELOVE_API_TYPE = 'gemini';
+
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => {
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: 'gemini thinking ok' }] } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      explainRecognizedTextWithMetadata('棰樼洰鏂囨湰', {
+        ...baseSettings,
+        providerId: 'makelove',
+        apiBaseUrl: '',
+        apiKey: '',
+        model: 'models/gemini-2.5-pro',
+        apiMode: 'env',
+        reasoningEffort: 'max'
+      })
+    ).resolves.toEqual({
+      text: 'gemini thinking ok'
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      generationConfig: {
+        thinkingConfig: {
+          thinkingBudget: 24576
+        }
+      }
+    });
   });
 
   it('falls back to /v1/models when a root provider returns an HTML page for /models', async () => {
