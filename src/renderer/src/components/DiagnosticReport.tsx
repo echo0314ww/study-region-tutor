@@ -56,7 +56,7 @@ export function DiagnosticReport({ result, onCopy }: DiagnosticReportProps): JSX
       <div className="diagnostic-summary">
         <div>
           <Info size={17} />
-          <strong>{result.ok ? '诊断通过' : '诊断发现问题'}</strong>
+          <strong>{result.ok ? '诊断通过' : '诊断发现问题，解决问题后请重新打开应用'}</strong>
         </div>
         <button className="secondary-button" type="button" onClick={() => onCopy(diagnosticReportText(result))}>
           <Clipboard size={16} />

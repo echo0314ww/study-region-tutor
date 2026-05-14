@@ -24,7 +24,7 @@ Study Region Tutor 是 Electron + React + TypeScript 桌面应用，用于学习
 1. 用户点击工具栏 `截图`，渲染层进入拖拽截图模式。
 2. 用户拖出题目区域后，应用先进入待确认状态。
 3. 用户点击 `确认识别` 后，渲染层通过 IPC 请求主进程裁剪屏幕区域。
-4. 主进程按显示器和缩放比例裁剪截图，并返回 PNG data URL。
+4. 主进程按显示器和缩放比例裁剪截图；跨显示器框选会拆分为多个裁剪段并合成为一张 PNG data URL。
 5. 默认模式直接把图片发送给当前第三方 API 服务商；OpenAI-compatible、Gemini 原生和 Anthropic 原生由主进程或代理服务按 provider 类型转换请求格式。
 6. 本地 OCR 模式会先展示可编辑识别文本；用户确认后才发送文本讲解请求。
 7. 讲解成功后创建本题内存会话，后续追问只发送题目上下文、历史问答和新问题，不重新发送截图。
@@ -32,12 +32,16 @@ Study Region Tutor 是 Electron + React + TypeScript 桌面应用，用于学习
 
 ## API 连接模式
 
-- 本地直连：打包应用读取 `%APPDATA%\study-region-tutor\.env.local`、同目录 `.env` 或环境变量。开发运行时还会优先读取项目根目录 `.env.local` / `.env`。
+- 本地直连：打包应用读取 `%APPDATA%\study-region-tutor\.env.local`、同目录 `.env` 或环境变量。开发运行时还会读取项目根目录 `.env.local` / `.env`。同名字段优先级为环境变量、`.env.local`、`.env`。
 - 代理服务：用户端只保存代理地址和代理 Token，第三方 API Key 留在代理服务所在电脑或服务器。
 
 服务商配置通过 `AI_API_TYPE` 或 `AI_PROVIDER_<ID>_API_TYPE` 区分协议，取值为 `openai-compatible`、`gemini` 或 `anthropic`。`openai-compatible` 继续使用 `AI_API_MODE` / `AI_PROVIDER_<ID>_API_MODE` 选择 Chat Completions 或 Responses；Gemini 和 Anthropic 忽略接口模式并走原生协议。
 
+API 协议层中的端点拼接、模型列表候选地址和错误摘要由 `src/shared/apiProtocol.mjs` 维护，主进程直连和 `server/proxy-server.mjs` 都调用同一套纯函数，避免 provider 行为漂移。
+
 思考程度配置由 `src/shared/reasoning.ts` 统一维护，设置面板只展示当前服务商和模型可用的档位。主进程 `src/main/openaiClient.ts` 和代理服务 `server/proxy-server.mjs` 都会在发起请求前归一化：OpenAI-compatible 使用 `reasoning_effort` / `reasoning.effort`，Claude 4.6/4.7/Mythos 使用 adaptive thinking + `output_config.effort`，旧 Claude 模型使用 `thinking.budget_tokens`，Gemini 3 使用 `thinkingLevel`，Gemini 2.5 使用 `thinkingBudget`。
+
+代理服务通过 `server/runtime-env.mjs` 读取运行配置，统一为环境变量优先、`.env.local` 次之、`.env` 最后。`proxy:dev` 同时监听项目根目录和已存在的 env 文件，因此 `.env` / `.env.local` 的创建、删除、重命名和原子替换都会触发配置重载；`TUTOR_PROXY_PORT` 变化时会尝试重启监听端口。
 
 代理服务公开接口不需要 Token：
 
@@ -69,8 +73,10 @@ API 代理接口需要 Token：
 
 - 默认只裁剪用户确认后的框选区域，不上传整屏。
 - API Key 只在主进程或代理服务端读取和使用，不回填到设置界面。
-- 代理 Token 可以保存在用户本机，但不会写入导出 Markdown。
+- 渲染层 `localStorage` 只保存非敏感设置，例如连接模式、模型名、代理地址和 OCR 选项；API Key 和代理 Token 不进入普通 `localStorage`。
+- 代理 Token 可以保存在用户本机主进程安全存储路径中，但不会写入导出 Markdown。
 - 诊断报告必须脱敏，不能输出 API Key、代理 Token、ngrok Token 或完整敏感请求头。
+- Renderer HTML 带有基础 CSP；BrowserWindow 保持 `contextIsolation: true`、`nodeIntegration: false` 和 `webSecurity: true`。`sandbox` 仍为 `false`，后续若要启用需要先验证当前 preload/IPC 打包方式。
 - 文档和公告不得包含真实密钥、Token 或个人账号凭据。
 
 ## 发布链路

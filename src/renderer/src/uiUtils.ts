@@ -14,8 +14,90 @@ import {
   MIN_RESULT_PANEL_HEIGHT,
   MIN_RESULT_PANEL_WIDTH,
   PROXY_TOKEN_INVALID_MESSAGE,
-  READ_ANNOUNCEMENT_REVISION_KEY
+  READ_ANNOUNCEMENT_REVISION_KEY,
+  SETTINGS_STORAGE_KEY
 } from './constants';
+
+const PERSISTED_SETTING_KEYS = [
+  'apiConnectionMode',
+  'providerId',
+  'model',
+  'language',
+  'reasoningOnly',
+  'apiMode',
+  'apiBaseUrl',
+  'proxyUrl',
+  'inputMode',
+  'ocrLanguage',
+  'ocrMathMode',
+  'reasoningEffort'
+] as const;
+
+type PersistedSettingKey = (typeof PERSISTED_SETTING_KEYS)[number];
+type PersistedTutorSettings = Partial<Pick<TutorSettings, PersistedSettingKey>>;
+type StringSettingKey = Exclude<PersistedSettingKey, 'reasoningOnly' | 'ocrMathMode'>;
+
+const FREE_TEXT_SETTING_KEYS = new Set<StringSettingKey>(['providerId', 'model', 'apiBaseUrl', 'proxyUrl']);
+const STRING_SETTING_OPTIONS: Partial<Record<StringSettingKey, readonly string[]>> = {
+  apiConnectionMode: ['direct', 'proxy'],
+  language: ['zh-CN', 'en'],
+  apiMode: ['env', 'chat-completions', 'responses'],
+  inputMode: ['ocr-text', 'image'],
+  ocrLanguage: ['chi_sim', 'eng'],
+  reasoningEffort: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function pickPersistableSettings(settings: TutorSettings): PersistedTutorSettings {
+  return {
+    apiConnectionMode: settings.apiConnectionMode,
+    providerId: settings.providerId,
+    model: settings.model,
+    language: settings.language,
+    reasoningOnly: settings.reasoningOnly,
+    apiMode: settings.apiMode,
+    apiBaseUrl: settings.apiBaseUrl,
+    proxyUrl: settings.proxyUrl,
+    inputMode: settings.inputMode,
+    ocrLanguage: settings.ocrLanguage,
+    ocrMathMode: settings.ocrMathMode,
+    reasoningEffort: settings.reasoningEffort
+  };
+}
+
+function sanitizePersistedSettings(raw: unknown): PersistedTutorSettings {
+  if (!isRecord(raw)) {
+    return {};
+  }
+
+  const settings: PersistedTutorSettings = {};
+
+  for (const key of PERSISTED_SETTING_KEYS) {
+    const value = raw[key];
+
+    const defaultValue = DEFAULT_SETTINGS[key];
+
+    if (typeof defaultValue === 'boolean') {
+      if (typeof value === 'boolean') {
+        settings[key] = value as never;
+      }
+      continue;
+    }
+
+    if (
+      typeof value === 'string' &&
+      (FREE_TEXT_SETTING_KEYS.has(key as StringSettingKey) ||
+        STRING_SETTING_OPTIONS[key as StringSettingKey]?.includes(value))
+    ) {
+      settings[key] = value as never;
+    }
+  }
+
+  return settings;
+}
 
 export function defaultResultPanel(): RegionBounds {
   const width = Math.min(560, Math.max(MIN_RESULT_PANEL_WIDTH, window.innerWidth - 44));
@@ -38,6 +120,35 @@ export function settingsWithApiDefaults(defaults: ApiRuntimeDefaults): TutorSett
     apiMode: defaults.providerId ? 'env' : defaults.apiMode || DEFAULT_SETTINGS.apiMode,
     proxyUrl: DEFAULT_SETTINGS.proxyUrl
   };
+}
+
+export function settingsWithPersistedUserSettings(settings: TutorSettings): TutorSettings {
+  const persisted = loadPersistedSettings();
+
+  return {
+    ...settings,
+    ...persisted,
+    apiKey: settings.apiKey,
+    proxyToken: settings.proxyToken
+  };
+}
+
+export function loadPersistedSettings(): PersistedTutorSettings {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+
+    return raw ? sanitizePersistedSettings(JSON.parse(raw)) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function savePersistedSettings(settings: TutorSettings): void {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(pickPersistableSettings(settings)));
+  } catch (error) {
+    console.warn(`Unable to persist non-sensitive settings: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export function effectiveProxyUrl(settings: TutorSettings): string {
@@ -90,7 +201,11 @@ export function loadReadAnnouncementRevision(): string {
 }
 
 export function saveReadAnnouncementRevision(revision: string): void {
-  localStorage.setItem(READ_ANNOUNCEMENT_REVISION_KEY, revision);
+  try {
+    localStorage.setItem(READ_ANNOUNCEMENT_REVISION_KEY, revision);
+  } catch (error) {
+    console.warn(`Unable to persist announcement read state: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 export function isReleaseAnnouncement(announcement: Announcement): boolean {

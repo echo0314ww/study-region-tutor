@@ -8,13 +8,14 @@ export default [
     ignores: ['out/**', 'dist/**', 'release/**', 'node_modules/**']
   },
   {
-    files: ['server/**/*.mjs', 'scripts/**/*.mjs'],
+    files: ['server/**/*.mjs', 'scripts/**/*.mjs', 'src/shared/**/*.mjs'],
     languageOptions: {
       globals: {
         AbortController: 'readonly',
         Buffer: 'readonly',
         TextDecoder: 'readonly',
         URL: 'readonly',
+        encodeURIComponent: 'readonly',
         clearTimeout: 'readonly',
         console: 'readonly',
         fetch: 'readonly',

@@ -20,13 +20,22 @@ export function GuidePanel({
   onPointerLeave
 }: GuidePanelProps): JSX.Element {
   const [stepIndex, setStepIndex] = useState(0);
-  const hasSteps = guide.steps.length > 0;
-  const currentStep = guide.steps[Math.min(stepIndex, Math.max(guide.steps.length - 1, 0))];
-  const isLastStep = hasSteps && stepIndex >= guide.steps.length - 1;
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const historyVersions = guide.historyVersions || [];
+  const selectedHistory = historyVersions[Math.min(historyIndex, Math.max(historyVersions.length - 1, 0))];
+  const visibleSteps = guide.kind === 'history' && selectedHistory ? selectedHistory.steps : guide.steps;
+  const hasSteps = visibleSteps.length > 0;
+  const currentStep = visibleSteps[Math.min(stepIndex, Math.max(visibleSteps.length - 1, 0))];
+  const isLastStep = hasSteps && stepIndex >= visibleSteps.length - 1;
 
   useEffect(() => {
     setStepIndex(0);
+    setHistoryIndex(0);
   }, [guide.kind, guide.version]);
+
+  useEffect(() => {
+    setStepIndex(0);
+  }, [historyIndex]);
 
   return (
     <section
@@ -60,15 +69,38 @@ export function GuidePanel({
         >
           本版本新增向导
         </button>
+        <button
+          className={guide.kind === 'history' ? 'active' : ''}
+          type="button"
+          onClick={() => onSwitchGuide('history')}
+        >
+          历史版本向导回顾
+        </button>
       </div>
+      {guide.kind === 'history' && historyVersions.length > 0 && (
+        <div className="guide-version-list" role="tablist" aria-label="history guide versions">
+          {historyVersions.map((history, index) => (
+            <button
+              key={history.version}
+              className={index === historyIndex ? 'active' : ''}
+              type="button"
+              onClick={() => setHistoryIndex(index)}
+            >
+              <strong>v{history.version}</strong>
+              <span>{history.title.replace(/^v[\d.]+\s*/, '')}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {hasSteps ? (
         <>
           <div className="guide-progress">
             <span>
-              {stepIndex + 1} / {guide.steps.length}
+              {selectedHistory ? `v${selectedHistory.version} · ` : ''}
+              {stepIndex + 1} / {visibleSteps.length}
             </span>
             <div>
-              {guide.steps.map((step, index) => (
+              {visibleSteps.map((step, index) => (
                 <button
                   key={step.title}
                   className={index === stepIndex ? 'active' : ''}
@@ -91,13 +123,17 @@ export function GuidePanel({
       ) : (
         <div className="guide-empty">
           <BookOpen size={24} />
-          <strong>暂无本版本新增向导</strong>
-          <span>接口已预留，后续版本可以在这里展示新增功能和迁移说明。</span>
+          <strong>{guide.kind === 'history' ? '暂无历史版本向导' : '暂无本版本新增向导'}</strong>
+          <span>
+            {guide.kind === 'history'
+              ? '当前版本之前还没有可回顾的新增功能向导。'
+              : '接口已预留，后续版本可以在这里展示新增功能和迁移说明。'}
+          </span>
         </div>
       )}
       <div className="guide-actions">
         <button className="secondary-button" type="button" onClick={() => onDismiss(guide.kind)}>
-          跳过本次
+          {guide.kind === 'history' ? '关闭回顾' : '跳过本次'}
         </button>
         {hasSteps && (
           <>
@@ -119,7 +155,7 @@ export function GuidePanel({
                   return;
                 }
 
-                setStepIndex((current) => Math.min(guide.steps.length - 1, current + 1));
+                setStepIndex((current) => Math.min(visibleSteps.length - 1, current + 1));
               }}
             >
               {isLastStep ? <Check size={16} /> : <ArrowRight size={16} />}

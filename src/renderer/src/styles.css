@@ -372,13 +372,14 @@ button:disabled {
 
 .guide-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 12px 14px 0;
 }
 
 .guide-tabs button {
   min-height: 34px;
+  padding: 6px 8px;
   border: 1px solid #d6e4dc;
   border-radius: 8px;
   background: #f7fbf8;
@@ -391,6 +392,45 @@ button:disabled {
   background: #e4f3e9;
   color: #17241d;
   font-weight: 650;
+}
+
+.guide-version-list {
+  display: flex;
+  gap: 8px;
+  margin: 12px 14px 0;
+  padding-bottom: 2px;
+  overflow-x: auto;
+}
+
+.guide-version-list button {
+  display: grid;
+  min-width: 132px;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid #d6e4dc;
+  border-radius: 8px;
+  background: #fbfdfb;
+  color: #33463b;
+  cursor: pointer;
+  text-align: left;
+}
+
+.guide-version-list button.active {
+  border-color: #1d5f3f;
+  background: #e4f3e9;
+  color: #17241d;
+}
+
+.guide-version-list strong {
+  font-size: 12px;
+}
+
+.guide-version-list span {
+  overflow: hidden;
+  color: #607167;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .guide-progress {

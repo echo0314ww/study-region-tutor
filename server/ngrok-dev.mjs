@@ -2,13 +2,15 @@ import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { readRuntimeEnv } from './runtime-env.mjs';
 
 const DEFAULT_PORT = 8787;
-const ENV_FILES = ['.env', '.env.local'];
 const LOCAL_ENV_FILE = '.env.local';
 const RESTART_DEBOUNCE_MS = 350;
 const TUNNEL_POLL_INTERVAL_MS = 700;
 const TUNNEL_POLL_ATTEMPTS = 35;
+const PROXY_HEALTH_POLL_INTERVAL_MS = 600;
+const PROXY_HEALTH_POLL_ATTEMPTS = 12;
 
 let ngrokProcess;
 let restartTimer;
@@ -16,53 +18,6 @@ let currentSignature = '';
 let lastPublicUrl = '';
 let restartQueue = Promise.resolve();
 let isShuttingDown = false;
-
-function parseEnvValue(raw) {
-  const value = raw.trim();
-
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1);
-  }
-
-  return value;
-}
-
-function parseEnvFile(path) {
-  if (!existsSync(path)) {
-    return {};
-  }
-
-  const env = {};
-  const content = readFileSync(path, 'utf8');
-
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-
-    const separator = trimmed.indexOf('=');
-
-    if (separator <= 0) {
-      continue;
-    }
-
-    env[trimmed.slice(0, separator).trim()] = parseEnvValue(trimmed.slice(separator + 1));
-  }
-
-  return env;
-}
-
-function readRuntimeEnv() {
-  const env = { ...process.env };
-
-  for (const file of ENV_FILES) {
-    Object.assign(env, parseEnvFile(resolve(process.cwd(), file)));
-  }
-
-  return env;
-}
 
 function proxyPort(env) {
   const port = Number.parseInt(String(env.TUTOR_PROXY_PORT || DEFAULT_PORT), 10);
@@ -118,6 +73,53 @@ async function configureAuthtoken(token) {
 
   await runCommand('ngrok', ['config', 'add-authtoken', token]);
   console.log('[ngrok] authtoken configured.');
+}
+
+async function fetchProxyHealth(port) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: controller.signal });
+    const data = await response.json().catch(() => undefined);
+
+    return {
+      reachable: true,
+      ok: response.ok,
+      status: response.status,
+      message: data?.error || data?.message || data?.data?.status || ''
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function waitForProxyHealth(port) {
+  let lastMessage = '';
+
+  for (let attempt = 0; attempt < PROXY_HEALTH_POLL_ATTEMPTS; attempt += 1) {
+    try {
+      const health = await fetchProxyHealth(port);
+
+      if (health.reachable) {
+        if (!health.ok) {
+          console.warn(
+            `[ngrok] proxy port ${port} is reachable but /health returned ${health.status}: ${health.message || 'no details'}`
+          );
+        }
+
+        return;
+      }
+    } catch (error) {
+      lastMessage = errorMessage(error);
+    }
+
+    await delay(PROXY_HEALTH_POLL_INTERVAL_MS);
+  }
+
+  throw new Error(
+    `proxy server is not reachable on http://127.0.0.1:${port}/health. Start or restart npm run proxy:dev first. ${lastMessage}`
+  );
 }
 
 function envLineValue(value) {
@@ -307,11 +309,12 @@ async function restartNgrok(reason) {
     return;
   }
 
-  currentSignature = signature;
   console.log(`[ngrok] ${reason}`);
+  await waitForProxyHealth(port);
   await stopNgrok();
   await configureAuthtoken(token);
   startNgrok(port);
+  currentSignature = signature;
 }
 
 function queueRestart(reason) {

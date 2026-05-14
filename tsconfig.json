@@ -21,6 +21,7 @@
     "electron.vite.config.ts",
     "vitest.config.ts",
     "eslint.config.js",
+    "src/**/*.d.mts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "tests/**/*.ts"

@@ -11,6 +11,11 @@ import type {
   TutorSettings
 } from '../shared/types';
 import { isAnthropicAdaptiveEffortModel, normalizeReasoningEffort } from '../shared/reasoning';
+import {
+  endpointForProvider,
+  extractApiErrorMessage,
+  modelsEndpointCandidatesForBaseUrl
+} from '../shared/apiProtocol.mjs';
 import { isOperationCanceled, throwIfAborted } from './cancel';
 import {
   buildFollowUpHistoryPrompt,
@@ -345,82 +350,12 @@ function withAnthropicThinking<T extends Record<string, unknown>>(
   };
 }
 
-function encodePathSegment(value: string): string {
-  return value.split('/').map(encodeURIComponent).join('/');
-}
-
-function geminiModelPath(model: string): string {
-  return encodePathSegment(model.trim().replace(/^models\//, ''));
-}
-
 function endpointFor(config: ApiConfig, stream = false): string {
-  if (config.apiProviderType === 'gemini') {
-    const action = stream ? 'streamGenerateContent' : 'generateContent';
-    const suffix = stream ? '?alt=sse' : '';
-    return `${config.baseUrl}/models/${geminiModelPath(config.model)}:${action}${suffix}`;
-  }
-
-  if (config.apiProviderType === 'anthropic') {
-    return config.baseUrl.endsWith('/messages') ? config.baseUrl : `${config.baseUrl}/messages`;
-  }
-
-  if (config.apiMode === 'responses') {
-    return config.baseUrl.endsWith('/responses') ? config.baseUrl : `${config.baseUrl}/responses`;
-  }
-
-  return config.baseUrl.endsWith('/chat/completions') ? config.baseUrl : `${config.baseUrl}/chat/completions`;
-}
-
-function modelsEndpointFor(baseUrl: string, apiProviderType: ApiProviderType): string {
-  if (baseUrl.endsWith('/models')) {
-    return baseUrl;
-  }
-
-  if (apiProviderType === 'anthropic' && baseUrl.endsWith('/messages')) {
-    return `${baseUrl.slice(0, -'/messages'.length)}/models`;
-  }
-
-  if (apiProviderType === 'gemini' || apiProviderType === 'anthropic') {
-    return `${baseUrl}/models`;
-  }
-
-  if (baseUrl.endsWith('/responses')) {
-    return `${baseUrl.slice(0, -'/responses'.length)}/models`;
-  }
-
-  if (baseUrl.endsWith('/chat/completions')) {
-    return `${baseUrl.slice(0, -'/chat/completions'.length)}/models`;
-  }
-
-  return `${baseUrl}/models`;
+  return endpointForProvider(config, config.model, stream);
 }
 
 function modelsEndpointCandidates(baseUrl: string, apiProviderType: ApiProviderType): string[] {
-  const candidates = [modelsEndpointFor(baseUrl, apiProviderType)];
-
-  try {
-    const url = new URL(baseUrl);
-    const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
-
-    if (apiProviderType === 'gemini' && normalizedPath === '/') {
-      candidates.push(`${url.origin}/v1beta/models`);
-    }
-
-    if (apiProviderType === 'anthropic' && normalizedPath === '/') {
-      candidates.push(`${url.origin}/v1/models`);
-    }
-
-    if (
-      apiProviderType === 'openai-compatible' &&
-      (normalizedPath === '/' || normalizedPath === '/responses' || normalizedPath === '/chat/completions')
-    ) {
-      candidates.push(`${url.origin}/v1/models`);
-    }
-  } catch {
-    return candidates;
-  }
-
-  return [...new Set(candidates)];
+  return modelsEndpointCandidatesForBaseUrl(baseUrl, apiProviderType);
 }
 
 function modelOptionFromRecord(record: Record<string, unknown>): ModelOption | undefined {
@@ -592,18 +527,6 @@ async function postJson(config: ApiConfig, body: unknown, signal?: AbortSignal):
   }
 
   return data;
-}
-
-function extractApiErrorMessage(data: unknown): string | undefined {
-  if (isRecord(data) && isRecord(data.error) && typeof data.error.message === 'string') {
-    return data.error.message;
-  }
-
-  if (isRecord(data) && typeof data.message === 'string' && data.type === 'error') {
-    return data.message;
-  }
-
-  return undefined;
 }
 
 function extractStreamResponseId(data: unknown): string | undefined {

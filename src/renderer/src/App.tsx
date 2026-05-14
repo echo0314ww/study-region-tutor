@@ -36,8 +36,10 @@ import {
   isCanceledError,
   isOcrPreviewResult,
   isProxyTokenInvalidMessage,
+  savePersistedSettings,
   settingsWithApiDefaults,
-  settingsWithEffectiveProxyUrl
+  settingsWithEffectiveProxyUrl,
+  settingsWithPersistedUserSettings
 } from './uiUtils';
 import { useAnnouncements } from './useAnnouncements';
 import { usePointerInteractions } from './usePointerInteractions';
@@ -54,7 +56,7 @@ export function App(): JSX.Element {
   const [region, setRegion] = useState(() => clampRegion(DEFAULT_REGION));
   const [resultPanel, setResultPanel] = useState(() => clampResultPanel(defaultResultPanel()));
   const [overlayBounds, setOverlayBounds] = useState<RegionBounds>({ x: 0, y: 0, width: 0, height: 0 });
-  const [settings, setSettings] = useState<TutorSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<TutorSettings>(() => settingsWithPersistedUserSettings(DEFAULT_SETTINGS));
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResultOpen, setIsResultOpen] = useState(false);
   const [isCaptureUiVisible, setIsCaptureUiVisible] = useState(true);
@@ -104,6 +106,10 @@ export function App(): JSX.Element {
   useEffect(() => {
     isModelCustomRef.current = isModelCustom;
   }, [isModelCustom]);
+
+  useEffect(() => {
+    savePersistedSettings(settings);
+  }, [settings]);
 
   const hasPendingCaptureConfirm = pendingCaptureRegion !== null;
   const floatingPassthroughMode = isCaptureUiVisible && !isDragCaptureActive && !hasPendingCaptureConfirm;
@@ -329,7 +335,7 @@ export function App(): JSX.Element {
 
   const markGuideSeen = useCallback(
     (kind: GuideKind): void => {
-      if (appVersion) {
+      if (appVersion && kind !== 'history') {
         const key = kind === 'product' ? PRODUCT_GUIDE_SEEN_VERSION_KEY : RELEASE_GUIDE_SEEN_VERSION_KEY;
         try {
           localStorage.setItem(key, appVersion);
@@ -489,7 +495,7 @@ export function App(): JSX.Element {
         }
 
         setApiDefaults(defaults);
-        sourceSettings = settingsWithApiDefaults(defaults);
+        sourceSettings = settingsWithPersistedUserSettings(settingsWithApiDefaults(defaults));
         setSettings(sourceSettings);
 
         if (sourceSettings.apiConnectionMode === 'proxy') {

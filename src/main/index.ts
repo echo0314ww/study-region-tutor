@@ -39,7 +39,7 @@ import {
   listApiProviders,
   listAvailableModels
 } from './openaiClient';
-import { recognizeTextFromDataUrl } from './ocr';
+import { disposeOcrWorkers, recognizeTextFromDataUrl } from './ocr';
 import {
   appendQuestionSessionTurn,
   createQuestionSession,
@@ -126,7 +126,9 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       sandbox: false,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false
     }
   });
   isMousePassthroughEnabled = false;
@@ -778,4 +780,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  void disposeOcrWorkers();
 });

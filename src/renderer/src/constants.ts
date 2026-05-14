@@ -36,6 +36,7 @@ export const DEFAULT_SETTINGS: TutorSettings = {
 export const MODEL_PLACEHOLDER_VALUE = '__select_model__';
 export const CUSTOM_MODEL_VALUE = '__custom_model__';
 export const READ_ANNOUNCEMENT_REVISION_KEY = 'study-region-tutor-read-announcement-revision';
+export const SETTINGS_STORAGE_KEY = 'study-region-tutor:settings:v1';
 export const PROXY_TOKEN_INVALID_MESSAGE = '代理访问 Token 已失效，请重新填写最新的 TUTOR_PROXY_TOKEN。';
 export const PRODUCT_GUIDE_SEEN_VERSION_KEY = 'study-region-tutor-product-guide-seen-version';
 export const RELEASE_GUIDE_SEEN_VERSION_KEY = 'study-region-tutor-release-guide-seen-version';

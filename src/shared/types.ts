@@ -228,11 +228,22 @@ export interface CropPlan {
   displayId: number;
   sourceDipBounds: RegionBounds;
   cropPixels: RegionBounds;
+  outputScaleFactor: number;
+  outputPixels: RegionBounds;
+  segments: CropSegment[];
+}
+
+export interface CropSegment {
+  displayId: number;
+  sourceDipBounds: RegionBounds;
+  sourceDipRegion: RegionBounds;
+  cropPixels: RegionBounds;
+  outputPixels: RegionBounds;
 }
 
 export interface DebugSnapshot {
   region: RegionBounds;
-  displayId: number;
+  displayId: number | string;
   scaleFactor: number;
   cropPixels: RegionBounds;
 }

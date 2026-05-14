@@ -1,5 +1,6 @@
 {
   "allAnnouncement": [
+    "release-v1.1.2",
     "release-v1.1.1",
     "release-v1.1.0",
     "release-v1.0.3",
@@ -7,6 +8,13 @@
     "release-v1.0.1"
   ],
   "announcements": [
+    {
+      "id": "release-v1.1.2",
+      "title": "v1.1.2 更新说明",
+      "content": "- 新增本版本新增向导和历史版本向导回顾，直接安装最新版也能从设置页按版本补看旧功能。\n- 代理服务会实时反映 .env.local / .env 配置变化；配置无效时会进入明确错误状态，不再沿用旧 provider。\n- 代理和 ngrok 使用一致的配置优先级，端口变化时会自动协调本地代理与公网隧道。\n- 跨显示器框选截图会合成为完整图片，减少双屏或负坐标副屏下的内容缺失。\n- 常用非敏感设置会在重启后保留；API Key 和代理 Token 不会写入普通 localStorage。\n- 连续 OCR 会复用语言 worker，后续识别通常更快。",
+      "level": "建议查看",
+      "publishedAt": "2026-05-14 21:34"
+    },
     {
       "id": "release-v1.1.1",
       "title": "v1.1.1 更新说明",

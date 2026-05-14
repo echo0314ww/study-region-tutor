@@ -10,6 +10,113 @@ interface OcrCandidate {
   text: string;
 }
 
+type OcrWorker = Awaited<ReturnType<typeof Tesseract.createWorker>>;
+
+interface CachedWorker {
+  language: OcrLanguage;
+  workerPromise: Promise<OcrWorker>;
+  queue: Promise<unknown>;
+  idleTimer?: NodeJS.Timeout;
+}
+
+const WORKER_IDLE_RELEASE_MS = 120000;
+const workerCache = new Map<OcrLanguage, CachedWorker>();
+
+function nowMs(): number {
+  return Date.now();
+}
+
+function workerForLanguage(language: OcrLanguage): CachedWorker {
+  const cached = workerCache.get(language);
+
+  if (cached) {
+    return cached;
+  }
+
+  const startedAt = nowMs();
+  const entry: CachedWorker = {
+    language,
+    workerPromise: Tesseract.createWorker(language, Tesseract.OEM.LSTM_ONLY, {
+      logger: () => undefined
+    }).then((worker) => {
+      console.log(`[ocr] initialized ${language} worker in ${nowMs() - startedAt}ms`);
+      return worker;
+    }),
+    queue: Promise.resolve()
+  };
+
+  workerCache.set(language, entry);
+  return entry;
+}
+
+function scheduleWorkerRelease(entry: CachedWorker): void {
+  clearTimeout(entry.idleTimer);
+  entry.idleTimer = setTimeout(() => {
+    if (workerCache.get(entry.language) !== entry) {
+      return;
+    }
+
+    workerCache.delete(entry.language);
+    void entry.workerPromise
+      .then((worker) => worker.terminate())
+      .then(() => console.log(`[ocr] released idle ${entry.language} worker`))
+      .catch(() => undefined);
+  }, WORKER_IDLE_RELEASE_MS);
+}
+
+async function terminateWorker(language: OcrLanguage, entry: CachedWorker): Promise<void> {
+  if (workerCache.get(language) === entry) {
+    workerCache.delete(language);
+  }
+
+  clearTimeout(entry.idleTimer);
+  await entry.workerPromise.then((worker) => worker.terminate()).catch(() => undefined);
+}
+
+function withCachedWorker<T>(
+  language: OcrLanguage,
+  signal: AbortSignal | undefined,
+  task: (worker: OcrWorker) => Promise<T>
+): Promise<T> {
+  const entry = workerForLanguage(language);
+  const run = async (): Promise<T> => {
+    clearTimeout(entry.idleTimer);
+    throwIfAborted(signal);
+    const worker = await entry.workerPromise;
+    const onAbort = (): void => {
+      void terminateWorker(language, entry);
+    };
+
+    try {
+      signal?.addEventListener('abort', onAbort, { once: true });
+      throwIfAborted(signal);
+      return await task(worker);
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+
+      if (workerCache.get(language) === entry) {
+        scheduleWorkerRelease(entry);
+      }
+    }
+  };
+  const result = entry.queue.catch(() => undefined).then(run);
+
+  entry.queue = result.catch(() => undefined);
+  return result;
+}
+
+export async function disposeOcrWorkers(): Promise<void> {
+  const entries = [...workerCache.entries()];
+  workerCache.clear();
+
+  await Promise.all(
+    entries.map(([, entry]) => {
+      clearTimeout(entry.idleTimer);
+      return entry.workerPromise.then((worker) => worker.terminate()).catch(() => undefined);
+    })
+  );
+}
+
 function bufferFromDataUrl(dataUrl: string): Buffer {
   const marker = 'base64,';
   const index = dataUrl.indexOf(marker);
@@ -157,17 +264,8 @@ async function recognizeCandidate(
   psm: Tesseract.PSM,
   signal?: AbortSignal
 ): Promise<OcrCandidate> {
-  throwIfAborted(signal);
-  const worker = await Tesseract.createWorker(language, Tesseract.OEM.LSTM_ONLY, {
-    logger: () => undefined
-  });
-  const onAbort = (): void => {
-    void worker.terminate();
-  };
-
-  try {
-    signal?.addEventListener('abort', onAbort, { once: true });
-    throwIfAborted(signal);
+  return withCachedWorker(language, signal, async (worker) => {
+    const startedAt = nowMs();
     // Higher DPI and preserved spaces help formulas where layout and small symbols matter.
     await worker.setParameters({
       preserve_interword_spaces: '1',
@@ -178,6 +276,7 @@ async function recognizeCandidate(
     throwIfAborted(signal);
     const result = await Promise.race([worker.recognize(imageBuffer), abortPromise(signal)]);
     throwIfAborted(signal);
+    console.log(`[ocr] recognized ${label}/${language} in ${nowMs() - startedAt}ms`);
 
     return {
       label,
@@ -185,10 +284,7 @@ async function recognizeCandidate(
       confidence: Math.round(result.data.confidence),
       text: result.data.text.trim()
     };
-  } finally {
-    signal?.removeEventListener('abort', onAbort);
-    await worker.terminate();
-  }
+  });
 }
 
 async function tryRecognizeCandidate(

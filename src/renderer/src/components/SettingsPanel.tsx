@@ -296,6 +296,9 @@ export function SettingsPanel({
             <button className="secondary-button" type="button" onClick={() => onOpenGuide('release')}>
               本版本新增向导
             </button>
+            <button className="secondary-button" type="button" onClick={() => onOpenGuide('history')}>
+              历史版本向导回顾
+            </button>
           </div>
           <div className="update-box">
             <div>

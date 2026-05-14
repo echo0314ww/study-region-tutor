@@ -12,7 +12,7 @@
 
 ## 当前版本与发布
 
-- 当前版本：`1.1.1`。
+- 当前版本：`1.1.2`。
 - GitHub 仓库：`echo0314ww/study-region-tutor`。
 - Windows 发布通过 GitHub Actions 完成，不使用 Personal Access Token。
 - 发布工作流使用仓库自带 `GITHUB_TOKEN`；`GH_TOKEN` 只作为 electron-builder 兼容变量指向同一个仓库 token。
@@ -65,7 +65,9 @@ node --check scripts/sync-release-notes.mjs
 - `.gitattributes`：统一 Git 换行符归一化；源码和文档使用 LF，Windows 脚本使用 CRLF。
 - `scripts/read-utf8.ps1`：Windows PowerShell 下按 UTF-8 读取中文文档，避免默认编码导致乱码。
 - `scripts/check-docs.mjs`：检查版本号、发布说明、版本公告和文档结构是否一致，对应 `npm run docs:check`。
-- 每次完成功能改进、体验优化、升级或扩展后，都要同步更新相关文档；至少检查 `CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md` 和 `PROJECT_CONTEXT.md` 是否需要记录本次变化。若变化涉及版本公告或发布，还要同步 `announcements/releases.json`。提交前优先运行 `npm run docs:check`。
+- 每次完成功能改进、体验优化、升级或扩展后，都要同步更新相关文档；至少检查 `CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md` 和 `PROJECT_CONTEXT.md` 是否需要记录本次变化。若变化涉及版本公告或发布，还要同步 `announcements/releases.json`。
+- 每次版本更新或用户可见变化都必须检查 `src/renderer/src/guides.ts`：判断是否需要添加“本版本新增向导”，并判断“整体功能向导”是否需要更新。用户可感知的新入口、新流程、新配置、迁移提示应优先写入本版本新增向导；已发布版本的新增向导条目继续保留，用于“历史版本向导回顾”，不要删除；整体流程变化才更新整体功能向导。不需要更新时，也要在实施记录或提交说明中写明原因。
+- 提交前优先运行 `npm run docs:check`。
 
 Windows PowerShell 查看中文文档时，优先使用：
 
@@ -77,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 README.md
 
 项目支持两种 API 连接模式：
 
-- 本地直连：打包应用读取用户配置目录 `%APPDATA%\study-region-tutor\.env.local`、同目录 `.env` 或环境变量中的第三方 API 配置；开发运行时额外优先读取项目根目录 `.env.local` / `.env`。
+- 本地直连：打包应用读取用户配置目录 `%APPDATA%\study-region-tutor\.env.local`、同目录 `.env` 或环境变量中的第三方 API 配置；开发运行时额外读取项目根目录 `.env.local` / `.env`。同名字段优先级统一为环境变量、`.env.local`、`.env`。
 - 代理服务：用户端只填写代理访问 Token；第三方 API Key 保留在开发者电脑或代理服务端，不下发给用户。
 
 重要约定：
@@ -89,6 +91,8 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 README.md
 - 用户端首次填写 `TUTOR_PROXY_TOKEN` 并成功刷新代理服务商后，会在本机保存代理 Token；后续可留空使用已保存 Token。保存优先使用 Electron `safeStorage`，鉴权失败时清除旧 Token 并要求重新填写。
 - API 服务商可通过 `AI_API_TYPE` 或 `AI_PROVIDER_<ID>_API_TYPE` 声明协议类型：`openai-compatible`、`gemini`、`anthropic`。`openai-compatible` 使用 `AI_API_MODE` 选择 Chat Completions 或 Responses；Gemini 和 Anthropic 使用原生请求格式。
 - 思考程度由 `src/shared/reasoning.ts` 统一决定可选项和归一化规则。OpenAI-compatible 映射到 `reasoning_effort` / `reasoning.effort`；Claude 4.6/4.7/Mythos 优先使用 `thinking: { type: "adaptive" }` + `output_config.effort`，旧 Claude 模型回退到 `thinking.budget_tokens`；Gemini 3 使用 `thinkingLevel`，Gemini 2.5 使用 `thinkingBudget`。主进程和 `server/proxy-server.mjs` 都要使用同一套语义，不能再固定显示或发送 `low/medium/high/xhigh`。
+- API 协议纯函数由 `src/shared/apiProtocol.mjs` 维护，主进程直连和 `server/proxy-server.mjs` 共用端点拼接、模型列表候选地址和错误摘要逻辑。
+- `server/runtime-env.mjs` 是代理服务和 `ngrok-dev` 共用的环境加载入口；代理脚本会监听 `.env` / `.env.local` 的创建、删除、重命名和内容变化。`TUTOR_PROXY_PORT` 热更新时，代理服务会尝试重启监听端口，`ngrok-dev` 会先确认本地 `/health` 可访问再重启隧道。
 - 本地直连配置缺失或模型列表刷新失败时，设置页只显示应用更新、API 连接模式和本地直连配置指引，隐藏后续 API/OCR 设置；配置指引应显示当前用户实际 `.env.local` 路径，例如 `C:\Users\用户名\AppData\Roaming\study-region-tutor\.env.local`，不要只显示 `%APPDATA%` 占位符。
 - 如果使用内置默认代理地址，普通设置页不显示远程服务地址输入框，只显示连接状态。
 - 高级设置是独立调试视图，只保留：代理服务地址输入框、验证是否连接成功、恢复默认地址、验证结果提示。
@@ -155,8 +159,10 @@ npm run ngrok:dev
 - 应用启动后默认只显示顶部工具栏。
 - 顶部工具栏包含截图、对话、公告、设置、退出应用等入口；识别或追问进行中会显示识别状态和停止按钮。
 - 顶部工具栏可通过左侧拖动手柄移动；设置面板可通过标题栏拖动。位置只在本次运行期间保留，不写入本地存储。
+- 非敏感设置会写入渲染层版本化 `localStorage`，包括连接模式、服务商、模型名、代理地址、输入方式、OCR 语言、数学增强、语言和思考程度；API Key 和代理 Token 不进入普通 `localStorage`。
 - 渲染层已按职责拆分：`App.tsx` 保留主流程编排，面板 UI 放在 `src/renderer/src/components/`，公告连接状态在 `useAnnouncements`，鼠标穿透/拖动逻辑在 `usePointerInteractions`。
 - 点击截图按钮后进入拖拽截图模式：显示全屏十字光标覆盖层，按住拖拽框选题目，松开后先进入待确认状态；工具栏显示“确认识别”和“重选截图”，点击“确认识别”后才调用识别/讲解。
+- 跨显示器框选会按每个显示器的交集分别裁剪，再合成为一张 PNG；单显示器框选仍走单段裁剪。
 - 拖拽中单击、右键或 Esc 取消本次截图；待确认状态下右键或 Esc 取消。
 - 确认识别后隐藏拖拽截图层并显示结果窗口。
 - 点击“截图下一题”或“结束本题”后，会结束/清空当前题目会话、隐藏结果窗口并进入拖拽截图模式；下一题框选并确认识别后，结果窗口再重新显示。
@@ -183,7 +189,7 @@ npm run ngrok:dev
 ## v1.1.0 已归档发布内容
 
 - 设置页新增“一键诊断”：主进程通过 `src/main/diagnostics.ts` 检查当前连接模式、配置文件、代理地址、代理 Token、API 服务商、模型列表和当前模型，返回 `DiagnosticResult`。诊断报告必须给普通用户可执行的“可能原因”和“处理建议”，并只暴露脱敏技术细节。
-- 设置向导框架已落地：`GuideKind` 支持 `product` 和 `release`；当前实现整体功能向导，版本新增向导保留入口和空态。应用版本变化后首次打开会自动显示整体功能向导，设置页顶部可重新打开两类向导。
+- 设置向导框架已落地：`GuideKind` 支持 `product`、`release` 和 `history`；当前实现整体功能向导、本版本新增向导和历史版本向导回顾。应用版本变化后首次打开会自动显示整体功能向导，随后显示当前版本新增向导；设置页顶部可重新打开三类向导。
 - 结果面板新增复制/导出 Markdown：`src/shared/exportConversation.ts` 生成 Markdown，主进程 `src/main/exportConversation.ts` 使用保存对话框写入文件；默认不导出截图、API Key、代理 Token 或代理地址。
 - 代理服务新增多 Token 与限流：旧 `TUTOR_PROXY_TOKEN` 继续作为 `default` 兼容；可用 `TUTOR_PROXY_TOKENS` + `TUTOR_PROXY_TOKEN_<ID>` 配置具名 Token，并用 `TUTOR_PROXY_RATE_LIMIT_PER_MINUTE` / `TUTOR_PROXY_RATE_LIMIT_BURST` 或单 Token 覆盖项启用限流。限流状态为内存级，按 token id + endpoint 计算。
 - `/health` 现在额外返回 `tokenCount`、`rateLimitEnabled` 和 `providerCount`；客户端诊断会把这些信息作为代理健康技术细节展示。
@@ -198,17 +204,26 @@ npm run ngrok:dev
 - 新增 `src/shared/reasoning.ts` 作为思考程度归一化入口；主进程和 `server/proxy-server.mjs` 都使用同一语义生成请求参数。
 - `docs/proxy-config.example.env` 补充 Makelove provider、多具名代理 Token 和限流配置示例，不包含真实密钥。
 
+## v1.1.2 已归档发布内容
+
+- 补充当前版本新增向导，并新增“历史版本向导回顾”；历史回顾按版本保留 v0.1.0 到 v1.1.1 的用户可见新增功能，整体功能向导已覆盖当前流程，暂不需要调整。
+- 代理服务热加载配置失败时会立即进入配置错误状态，不再沿用旧 provider，并修复首次启动配置错误时的 `activeConfig` 初始化异常。
+- 统一环境优先级、代理目录级热更新、`TUTOR_PROXY_PORT` 端口热切换和 ngrok 端口健康检查。
+- 跨显示器截图会按显示器裁剪并合成完整 PNG；非敏感设置持久化、`localStorage` 容错、OCR worker 复用、共享 API 协议纯函数和 renderer CSP 基线已落地。
+- 发布清单、接手文档和项目上下文已补充向导检查、配置热更新、连接路径、跨屏截图和 Windows 首次向导验证要求。
+
 ## 当前本地状态提醒
 
 - `v1.0.2` 发布内容：OCR 结果确认页、图片失败后的 OCR 确认兜底、KaTeX 公式渲染、扁平公式转 LaTeX、提示词公式输出约束、工具栏/设置面板拖动、开发标签页脚本，以及 `App.tsx` 渲染层拆分。
 - `v1.0.3` 发布内容：顶部“截图”改为拖拽截图模式，拖拽完成后先待确认，点击“确认识别”后才提交识别；点击“截图下一题”或“结束本题”后隐藏结果窗口并进入截图模式，下一题确认识别后再显示结果窗口；启动/聚焦/恢复可见时主动同步鼠标穿透状态；流式回答正文出现后立即隐藏可见处理过程；长回答支持一键跳到底部；用户追问右对齐显示。
 - `v1.1.0` 发布内容：一键诊断、整体功能向导框架、Markdown 导出、代理服务多 Token/限流、Codex 接手文档、文档自检和 GitHub Actions 发布前文档检查。
 - `v1.1.1` 发布内容：结果面板底部动作区改为“复制答案/导出答案”；直连和代理服务新增 `AI_API_TYPE` / `AI_PROVIDER_<ID>_API_TYPE`，兼容 Gemini 原生和 Anthropic 原生协议；设置面板思考程度改为按服务商/模型动态显示，并兼容 Claude Opus 4.6 的 `max`、Gemini `thinkingLevel` / `thinkingBudget`；代理配置模板补充多具名 Token 和限流示例。
+- `v1.1.2` 发布内容：本版本新增向导和历史版本向导回顾、代理配置热更新错误状态、环境优先级统一、端口热切换、ngrok 健康检查、跨显示器截图合成、非敏感设置持久化、OCR worker 复用、共享 API 协议纯函数、renderer CSP 基线和更细的发布验证清单。
 - 当前 Unreleased 改动：暂无。
 - 已新增文档维护约定和 `npm run docs:check`：以后每次完成功能改进、体验优化、升级或扩展后，都要同步检查并更新相关文档。
-- `announcements/releases.json` 当前可见版本公告为 `release-v1.1.1`。
-- `v1.1.1` 发布材料已同步到 `package.json`、`package-lock.json`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`PROJECT_CONTEXT.md` 和版本公告。
-- 推送 tag `v1.1.1` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
+- `announcements/releases.json` 当前可见版本公告为 `release-v1.1.2`。
+- `v1.1.2` 发布材料已同步到 `package.json`、`package-lock.json`、`CHANGELOG.md`、`RELEASE_NOTES.md`、`README.md`、`PROJECT_CONTEXT.md` 和版本公告。
+- 推送 tag `v1.1.2` 后，GitHub Actions 会使用仓库自带 `GITHUB_TOKEN` 构建并发布 Windows 安装包。
 - 发布流程统一走 GitHub Actions，不在本机手动发布 GitHub Release；本机只在 GitHub Actions 发布成功后运行 `npm run dist` 同步 `release/`。
 - 发布完成后仍需同步本地 `release/` 文件夹，确认 `release/latest.yml` 和安装包都指向当前最新版本。
 - 不要把 `.env.local`、API Key、代理 Token、ngrok Token 提交到仓库。

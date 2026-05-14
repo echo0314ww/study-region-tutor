@@ -39,7 +39,7 @@ export type UiConversationTurn = QuestionSessionTurn & {
 
 export type ProxyHealthStatus = 'idle' | 'checking' | 'success' | 'error';
 export type SettingsView = 'normal' | 'proxyAdvanced' | 'setupGuide';
-export type GuideKind = 'product' | 'release';
+export type GuideKind = 'product' | 'release' | 'history';
 
 export interface GuideStep {
   title: string;
@@ -49,6 +49,14 @@ export interface GuideStep {
 
 export interface GuideDefinition {
   kind: GuideKind;
+  version: string;
+  title: string;
+  subtitle: string;
+  steps: GuideStep[];
+  historyVersions?: GuideVersionSection[];
+}
+
+export interface GuideVersionSection {
   version: string;
   title: string;
   subtitle: string;

@@ -4,68 +4,28 @@ import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { clearInterval, setInterval } from 'node:timers';
+import { ENV_FILES, readRuntimeEnv } from './runtime-env.mjs';
+import {
+  endpointForProvider,
+  extractApiErrorMessage,
+  modelsEndpointCandidatesForBaseUrl
+} from '../src/shared/apiProtocol.mjs';
 
 const DEFAULT_PORT = 8787;
 const DEFAULT_MAX_BODY_MB = 12;
 const DEFAULT_RELEASE_ANNOUNCEMENT_FILE = 'announcements/releases.json';
 const DEFAULT_ANNOUNCEMENT_FILE = 'announcements/current.json';
-const ENV_FILES = ['.env', '.env.local'];
 
-let activeConfig = loadConfigSafely();
+let activeConfig;
 let reloadTimer;
+let reloadQueue = Promise.resolve();
+let envWatchers = [];
 let activeAnnouncements = [];
 let announcementReloadTimer;
 let announcementWatchers = [];
 let lastServiceUrlSignature = '';
 const announcementClients = new Set();
 const rateLimitBuckets = new Map();
-
-function parseEnvValue(raw) {
-  const value = raw.trim();
-
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1);
-  }
-
-  return value;
-}
-
-function parseEnvFile(path) {
-  if (!existsSync(path)) {
-    return {};
-  }
-
-  const env = {};
-  const content = readFileSync(path, 'utf8');
-
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-
-    const separator = trimmed.indexOf('=');
-
-    if (separator <= 0) {
-      continue;
-    }
-
-    env[trimmed.slice(0, separator).trim()] = parseEnvValue(trimmed.slice(separator + 1));
-  }
-
-  return env;
-}
-
-function readRuntimeEnv() {
-  const env = { ...process.env };
-
-  for (const file of ENV_FILES) {
-    Object.assign(env, parseEnvFile(resolve(process.cwd(), file)));
-  }
-
-  return env;
-}
 
 function parseApiMode(value) {
   return value === 'responses' ? 'responses' : 'chat-completions';
@@ -322,33 +282,218 @@ function loadConfigSafely() {
     return config;
   } catch (error) {
     console.error(`[proxy] config load failed: ${errorMessage(error)}`);
+    console.error('[proxy] latest config is invalid; API proxy endpoints will return configuration errors until .env is fixed.');
 
-    if (activeConfig) {
-      console.error('[proxy] keeping the previous valid config.');
-      return activeConfig;
-    }
-
-    throw error;
+    return unavailableConfigFromError(error, activeConfig);
   }
+}
+
+function unavailableConfigFromError(error, previousConfig) {
+  const env = readRuntimeEnv();
+  const port = Number.parseInt(String(env.TUTOR_PROXY_PORT || previousConfig?.port || DEFAULT_PORT), 10);
+  const maxBodyMb = Number.parseInt(String(env.TUTOR_PROXY_MAX_BODY_MB || DEFAULT_MAX_BODY_MB), 10);
+  const announcementFile = String(env.ANNOUNCEMENT_FILE || DEFAULT_ANNOUNCEMENT_FILE).trim();
+  const releaseAnnouncementFile = String(
+    env.ANNOUNCEMENT_RELEASE_FILE || DEFAULT_RELEASE_ANNOUNCEMENT_FILE
+  ).trim();
+  let tokens = [];
+  let publicProxyUrl = previousConfig?.publicProxyUrl || '';
+
+  try {
+    tokens = loadProxyTokens(env);
+  } catch {
+    tokens = [];
+  }
+
+  try {
+    publicProxyUrl = normalizeOptionalUrl(env.TUTOR_PUBLIC_PROXY_URL, 'TUTOR_PUBLIC_PROXY_URL');
+  } catch {
+    publicProxyUrl = previousConfig?.publicProxyUrl || '';
+  }
+
+  return {
+    loadedAt: new Date().toISOString(),
+    configError: errorMessage(error),
+    tokens,
+    rateLimit: {
+      perMinute: parsePositiveInteger(env.TUTOR_PROXY_RATE_LIMIT_PER_MINUTE),
+      burst: parsePositiveInteger(env.TUTOR_PROXY_RATE_LIMIT_BURST)
+    },
+    port: Number.isFinite(port) && port > 0 ? port : DEFAULT_PORT,
+    maxBodyBytes: (Number.isFinite(maxBodyMb) && maxBodyMb > 0 ? maxBodyMb : DEFAULT_MAX_BODY_MB) * 1024 * 1024,
+    publicProxyUrl,
+    announcementEnabled: parseBoolean(env.ANNOUNCEMENT_ENABLED, previousConfig?.announcementEnabled ?? true),
+    announcementPaths: uniqueInOrder([releaseAnnouncementFile, announcementFile].filter(Boolean)).map((file) =>
+      resolve(process.cwd(), file)
+    ),
+    providers: []
+  };
+}
+
+let listeningPort = 0;
+
+function listenOnPort(port) {
+  return new Promise((resolveListen, reject) => {
+    const cleanup = () => {
+      server.off('error', onError);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+
+    server.once('error', onError);
+    server.listen(port, '0.0.0.0', () => {
+      cleanup();
+      listeningPort = port;
+      console.log(`[proxy] listening on http://0.0.0.0:${port}`);
+      resolveListen();
+    });
+  });
+}
+
+function closeListeningServer() {
+  if (!server.listening) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolveClose, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(new Error('Timed out while closing the current proxy listener.'));
+    }, 3000);
+
+    server.close((error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      listeningPort = 0;
+      resolveClose();
+    });
+    server.closeIdleConnections?.();
+    server.closeAllConnections?.();
+  });
+}
+
+async function applyConfigReload() {
+  const previousConfig = activeConfig;
+  const nextConfig = loadConfigSafely();
+
+  if (!previousConfig || nextConfig.port === previousConfig.port) {
+    activeConfig = nextConfig;
+    logConfigState(activeConfig);
+    logServiceUrls(activeConfig);
+    resetEnvWatchers();
+    scheduleAnnouncementReload();
+    return;
+  }
+
+  console.log(`[proxy] TUTOR_PROXY_PORT changed from ${previousConfig.port} to ${nextConfig.port}; restarting listener.`);
+
+  try {
+    await closeListeningServer();
+    await listenOnPort(nextConfig.port);
+    activeConfig = nextConfig;
+    logConfigState(activeConfig);
+  } catch (error) {
+    console.error(`[proxy] failed to listen on new port ${nextConfig.port}: ${errorMessage(error)}`);
+    const fallbackError = new Error(
+      `TUTOR_PROXY_PORT changed to ${nextConfig.port}, but the proxy could not listen on that port. Still listening on ${previousConfig.port}. ${errorMessage(error)}`
+    );
+    activeConfig = {
+      ...unavailableConfigFromError(fallbackError, previousConfig),
+      port: previousConfig.port
+    };
+
+    try {
+      if (!server.listening) {
+        await listenOnPort(previousConfig.port);
+      }
+    } catch (fallbackListenError) {
+      console.error(`[proxy] failed to restore previous port ${previousConfig.port}: ${errorMessage(fallbackListenError)}`);
+    }
+  }
+
+  logServiceUrls(activeConfig);
+  resetEnvWatchers();
+  scheduleAnnouncementReload();
 }
 
 function scheduleReload() {
   clearTimeout(reloadTimer);
   reloadTimer = setTimeout(() => {
-    const previousPort = activeConfig.port;
-    const nextConfig = loadConfigSafely();
-    activeConfig = { ...nextConfig, port: previousPort };
-    logServiceUrls(activeConfig);
-    scheduleAnnouncementReload();
+    reloadQueue = reloadQueue.then(applyConfigReload).catch((error) => {
+      console.error(`[proxy] config reload failed: ${errorMessage(error)}`);
+    });
   }, 180);
 }
 
-for (const file of ENV_FILES) {
-  const path = resolve(process.cwd(), file);
+function envFileName(filename) {
+  return String(filename || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .pop();
+}
 
-  if (existsSync(path)) {
-    watch(path, { persistent: false }, scheduleReload);
+function isEnvFileEvent(filename) {
+  return ENV_FILES.includes(envFileName(filename));
+}
+
+function resetEnvWatchers() {
+  for (const watcher of envWatchers) {
+    watcher.close();
   }
+
+  envWatchers = [];
+
+  try {
+    envWatchers.push(
+      watch(process.cwd(), { persistent: false }, (_eventType, filename) => {
+        if (isEnvFileEvent(filename)) {
+          scheduleReload();
+        }
+      })
+    );
+  } catch (error) {
+    console.error(`[proxy] directory watcher failed: ${errorMessage(error)}`);
+  }
+
+  for (const file of ENV_FILES) {
+    const path = resolve(process.cwd(), file);
+
+    if (!existsSync(path)) {
+      continue;
+    }
+
+    try {
+      envWatchers.push(watch(path, { persistent: false }, scheduleReload));
+    } catch (error) {
+      console.error(`[proxy] watcher failed for ${file}: ${errorMessage(error)}`);
+    }
+  }
+}
+
+function logConfigState(config) {
+  if (config.configError) {
+    console.error(`[proxy] config status: error; ${config.configError}`);
+    return;
+  }
+
+  console.log(`[proxy] config status: ok; providers=${config.providers.length}; tokens=${config.tokens.length}`);
 }
 
 function providerSummary(provider) {
@@ -380,84 +525,12 @@ function getProvider(providerId) {
   return provider;
 }
 
-function encodePathSegment(value) {
-  return String(value).split('/').map(encodeURIComponent).join('/');
-}
-
-function geminiModelPath(model) {
-  return encodePathSegment(String(model || '').trim().replace(/^models\//, ''));
-}
-
 function endpointFor(provider, model, stream = false) {
-  if (provider.apiProviderType === 'gemini') {
-    const action = stream ? 'streamGenerateContent' : 'generateContent';
-    const suffix = stream ? '?alt=sse' : '';
-    return `${provider.baseUrl}/models/${geminiModelPath(model)}:${action}${suffix}`;
-  }
-
-  if (provider.apiProviderType === 'anthropic') {
-    return provider.baseUrl.endsWith('/messages') ? provider.baseUrl : `${provider.baseUrl}/messages`;
-  }
-
-  if (provider.apiMode === 'responses') {
-    return provider.baseUrl.endsWith('/responses') ? provider.baseUrl : `${provider.baseUrl}/responses`;
-  }
-
-  return provider.baseUrl.endsWith('/chat/completions')
-    ? provider.baseUrl
-    : `${provider.baseUrl}/chat/completions`;
-}
-
-function modelsEndpointFor(baseUrl, apiProviderType) {
-  if (baseUrl.endsWith('/models')) {
-    return baseUrl;
-  }
-
-  if (apiProviderType === 'anthropic' && baseUrl.endsWith('/messages')) {
-    return `${baseUrl.slice(0, -'/messages'.length)}/models`;
-  }
-
-  if (apiProviderType === 'gemini' || apiProviderType === 'anthropic') {
-    return `${baseUrl}/models`;
-  }
-
-  if (baseUrl.endsWith('/responses')) {
-    return `${baseUrl.slice(0, -'/responses'.length)}/models`;
-  }
-
-  if (baseUrl.endsWith('/chat/completions')) {
-    return `${baseUrl.slice(0, -'/chat/completions'.length)}/models`;
-  }
-
-  return `${baseUrl}/models`;
+  return endpointForProvider(provider, model, stream);
 }
 
 function modelsEndpointCandidates(baseUrl, apiProviderType) {
-  const candidates = [modelsEndpointFor(baseUrl, apiProviderType)];
-
-  try {
-    const url = new URL(baseUrl);
-    const normalizedPath = url.pathname.replace(/\/+$/, '') || '/';
-
-    if (apiProviderType === 'gemini' && normalizedPath === '/') {
-      candidates.push(`${url.origin}/v1beta/models`);
-    }
-
-    if (apiProviderType === 'anthropic' && normalizedPath === '/') {
-      candidates.push(`${url.origin}/v1/models`);
-    }
-
-    if (
-      apiProviderType === 'openai-compatible' &&
-      (normalizedPath === '/' || normalizedPath === '/responses' || normalizedPath === '/chat/completions')
-    ) {
-      candidates.push(`${url.origin}/v1/models`);
-    }
-  } catch {
-    return candidates;
-  }
-
-  return [...new Set(candidates)];
+  return modelsEndpointCandidatesForBaseUrl(baseUrl, apiProviderType);
 }
 
 function isRecord(value) {
@@ -654,18 +727,6 @@ function imageDataFromDataUrl(dataUrl) {
     mimeType: match[1],
     data: match[2]
   };
-}
-
-function extractApiErrorMessage(data) {
-  if (isRecord(data) && isRecord(data.error) && typeof data.error.message === 'string') {
-    return data.error.message;
-  }
-
-  if (isRecord(data) && typeof data.message === 'string' && data.type === 'error') {
-    return data.message;
-  }
-
-  return undefined;
 }
 
 function extractStreamResponseId(data) {
@@ -1846,6 +1907,14 @@ function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function configErrorMessage() {
+  return activeConfig.configError ? `代理服务配置无效：${activeConfig.configError}` : '';
+}
+
+function sendConfigError(res) {
+  sendJson(res, 503, { ok: false, error: configErrorMessage() || '代理服务配置无效。' });
+}
+
 async function route(req, res) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 
@@ -1855,11 +1924,33 @@ async function route(req, res) {
   }
 
   if (url.pathname === '/health' && req.method === 'GET') {
+    if (activeConfig.configError) {
+      sendJson(res, 503, {
+        ok: false,
+        error: configErrorMessage(),
+        data: {
+          status: 'config-error',
+          loadedAt: activeConfig.loadedAt,
+          configError: activeConfig.configError,
+          listeningPort,
+          providerCount: 0,
+          serviceUrls: serviceUrls(activeConfig),
+          announcementEnabled: activeConfig.announcementEnabled,
+          announcementCount: activeAnnouncements.length,
+          hasAnnouncement: activeAnnouncements.length > 0,
+          tokenCount: activeConfig.tokens.length,
+          rateLimitEnabled: isRateLimitEnabled(activeConfig)
+        }
+      });
+      return;
+    }
+
     sendJson(res, 200, {
       ok: true,
       data: {
         status: 'ok',
         loadedAt: activeConfig.loadedAt,
+        listeningPort,
         providerCount: activeConfig.providers.length,
         serviceUrls: serviceUrls(activeConfig),
         announcementEnabled: activeConfig.announcementEnabled,
@@ -1879,6 +1970,11 @@ async function route(req, res) {
 
   if (url.pathname === '/announcements/stream' && req.method === 'GET') {
     handleAnnouncementStream(req, res);
+    return;
+  }
+
+  if (activeConfig.configError) {
+    sendConfigError(res);
     return;
   }
 
@@ -1947,14 +2043,15 @@ const server = createServer((req, res) => {
   });
 });
 
+activeConfig = loadConfigSafely();
+logConfigState(activeConfig);
+resetEnvWatchers();
 loadAnnouncementSafely();
 resetAnnouncementWatcher();
 
-server.listen(activeConfig.port, '0.0.0.0', () => {
-  console.log(`[proxy] listening on http://0.0.0.0:${activeConfig.port}`);
-  logServiceUrls(activeConfig);
-  console.log('[proxy] use GET /health to check status; announcements are public; API proxy endpoints require Authorization: Bearer <TUTOR_PROXY_TOKEN>');
-});
+await listenOnPort(activeConfig.port);
+logServiceUrls(activeConfig);
+console.log('[proxy] use GET /health to check status; announcements are public; API proxy endpoints require Authorization: Bearer <TUTOR_PROXY_TOKEN>');
 
 setInterval(() => {
   logServiceUrls(activeConfig);
