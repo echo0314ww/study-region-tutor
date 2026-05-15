@@ -2,10 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, LOCAL_HISTORY_STORAGE_KEY, STUDY_LIBRARY_STORAGE_KEY } from '../src/renderer/src/constants';
 import {
   filterStudyItems,
+  getDueStudyItems,
   loadStudyItems,
   saveStudyItems,
+  scheduleNextReview,
+  studyLibraryStats,
   tagsFromText,
   updateStudyItemMetadata,
+  updateStudyItemReviewResult,
   upsertStudyItem
 } from '../src/renderer/src/studyLibrary';
 import type { StudyItem, UiConversationTurn } from '../src/renderer/src/uiTypes';
@@ -34,6 +38,7 @@ function turns(content = '求函数 f(x)=x^2 的导数'): UiConversationTurn[] {
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, 'localStorage');
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -70,7 +75,11 @@ describe('study library', () => {
       subject: 'math',
       favorite: false,
       status: 'new',
-      tags: []
+      tags: [],
+      reviewCount: 0,
+      correctCount: 0,
+      wrongCount: 0,
+      difficulty: 'normal'
     });
   });
 
@@ -153,6 +162,57 @@ describe('study library', () => {
         favoritesOnly: true
       })
     ).toHaveLength(0);
+  });
+
+  it('schedules review intervals and updates review counters', () => {
+    const baseItem = upsertStudyItem([], {
+      id: 'study-1',
+      appVersion: '1.1.2',
+      settings: DEFAULT_SETTINGS,
+      turns: turns('一道导数题')
+    })[0] as StudyItem;
+    const reviewedAt = new Date('2026-05-15T00:00:00.000Z');
+    const patch = scheduleNextReview(baseItem, 'again', reviewedAt);
+
+    expect(patch.status).toBe('reviewing');
+    expect(patch.wrongCount).toBe(1);
+    expect(patch.nextReviewAt).toBe('2026-05-16T00:00:00.000Z');
+
+    const [reviewed] = updateStudyItemReviewResult([baseItem], baseItem.id, 'good', reviewedAt);
+
+    expect(reviewed.reviewCount).toBe(1);
+    expect(reviewed.correctCount).toBe(1);
+    expect(reviewed.nextReviewAt).toBe('2026-05-22T00:00:00.000Z');
+  });
+
+  it('filters due and mistaken study items', () => {
+    const baseItem = upsertStudyItem([], {
+      id: 'study-1',
+      appVersion: '1.1.2',
+      settings: DEFAULT_SETTINGS,
+      turns: turns('一道导数题')
+    })[0] as StudyItem;
+    const [item] = updateStudyItemMetadata([baseItem], baseItem.id, {
+      status: 'reviewing',
+      wrongCount: 2,
+      nextReviewAt: '2026-05-14T00:00:00.000Z'
+    });
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-15T00:00:00.000Z'));
+
+    expect(getDueStudyItems([item])).toHaveLength(1);
+    expect(studyLibraryStats([item]).mistakes).toBe(1);
+    expect(
+      filterStudyItems([item], {
+        query: '',
+        subject: 'all',
+        status: 'all',
+        favoritesOnly: false,
+        dueOnly: true,
+        mistakesOnly: true
+      })
+    ).toHaveLength(1);
   });
 
   it('normalizes tag text', () => {

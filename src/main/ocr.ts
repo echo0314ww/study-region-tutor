@@ -1,6 +1,6 @@
 import { PNG } from 'pngjs';
 import Tesseract from 'tesseract.js';
-import type { OcrCandidate, OcrLanguage, OcrRecognitionResult, TutorSettings } from '../shared/types';
+import type { OcrCandidate, OcrLanguage, OcrPreprocessMode, OcrRecognitionResult, TutorSettings } from '../shared/types';
 import { abortPromise, isOperationCanceled, throwIfAborted } from './cancel';
 
 type OcrWorker = Awaited<ReturnType<typeof Tesseract.createWorker>>;
@@ -237,7 +237,30 @@ function pngFromGray(source: PNG, values: Uint8Array, threshold?: number): PNG {
   return target;
 }
 
-function createEnhancedImages(imageBuffer: Buffer): Buffer[] {
+function invertPng(source: PNG): PNG {
+  const target = new PNG({
+    width: source.width,
+    height: source.height
+  });
+
+  for (let index = 0; index < source.data.length; index += 4) {
+    target.data[index] = 255 - source.data[index];
+    target.data[index + 1] = 255 - source.data[index + 1];
+    target.data[index + 2] = 255 - source.data[index + 2];
+    target.data[index + 3] = source.data[index + 3];
+  }
+
+  return target;
+}
+
+function createEnhancedImages(
+  imageBuffer: Buffer,
+  mode: OcrPreprocessMode
+): Array<{ label: string; buffer: Buffer }> {
+  if (mode === 'none') {
+    return [];
+  }
+
   const source = PNG.sync.read(imageBuffer);
   const longestSide = Math.max(source.width, source.height);
   const scaleFactor = longestSide < 700 ? 3 : 2;
@@ -246,8 +269,21 @@ function createEnhancedImages(imageBuffer: Buffer): Buffer[] {
   const threshold = otsuThreshold(grayValues);
   const contrastPng = pngFromGray(scaled, grayValues);
   const binaryPng = pngFromGray(scaled, grayValues, threshold);
+  const variants: Array<{ label: string; buffer: Buffer }> = [];
 
-  return [PNG.sync.write(contrastPng), PNG.sync.write(binaryPng)];
+  if (mode === 'auto' || mode === 'contrast' || mode === 'multi') {
+    variants.push({ label: '增强对比度识别', buffer: PNG.sync.write(contrastPng) });
+  }
+
+  if (mode === 'auto' || mode === 'binary' || mode === 'multi') {
+    variants.push({ label: '增强二值化识别', buffer: PNG.sync.write(binaryPng) });
+  }
+
+  if (mode === 'multi') {
+    variants.push({ label: '反色二值化识别', buffer: PNG.sync.write(invertPng(binaryPng)) });
+  }
+
+  return variants;
 }
 
 async function recognizeCandidate(
@@ -363,33 +399,42 @@ export async function recognizeTextFromDataUrl(
       candidates.push(primaryCandidate);
     }
 
-    if (settings.ocrMathMode) {
-      throwIfAborted(signal);
-      const [contrastBuffer, binaryBuffer] = createEnhancedImages(imageBuffer);
-      const formulaLanguage: OcrLanguage = 'eng';
-      const enhancedPrimary = await tryRecognizeCandidate(
-        binaryBuffer,
-        settings.ocrLanguage,
-        '增强二值化识别',
-        Tesseract.PSM.SPARSE_TEXT,
-        signal
-      );
-      throwIfAborted(signal);
-      const formulaCandidate = await tryRecognizeCandidate(
-        contrastBuffer,
-        formulaLanguage,
-        '公式优先识别',
-        Tesseract.PSM.SPARSE_TEXT,
-        signal
-      );
-      throwIfAborted(signal);
+    const preprocessMode = settings.ocrPreprocessMode || 'auto';
 
-      if (enhancedPrimary) {
-        candidates.push(enhancedPrimary);
+    if (settings.ocrMathMode || preprocessMode !== 'none') {
+      throwIfAborted(signal);
+      const enhancedImages = createEnhancedImages(imageBuffer, preprocessMode);
+      const formulaLanguage: OcrLanguage = 'eng';
+
+      for (const variant of enhancedImages) {
+        const enhancedCandidate = await tryRecognizeCandidate(
+          variant.buffer,
+          settings.ocrLanguage,
+          variant.label,
+          Tesseract.PSM.SPARSE_TEXT,
+          signal
+        );
+
+        throwIfAborted(signal);
+
+        if (enhancedCandidate) {
+          candidates.push(enhancedCandidate);
+        }
       }
 
-      if (formulaCandidate) {
-        candidates.push(formulaCandidate);
+      if (settings.ocrMathMode && enhancedImages.length > 0) {
+        const formulaCandidate = await tryRecognizeCandidate(
+          enhancedImages[0].buffer,
+          formulaLanguage,
+          '公式优先识别',
+          Tesseract.PSM.SPARSE_TEXT,
+          signal
+        );
+        throwIfAborted(signal);
+
+        if (formulaCandidate) {
+          candidates.push(formulaCandidate);
+        }
       }
     }
 

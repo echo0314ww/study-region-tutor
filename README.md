@@ -94,6 +94,7 @@ AI_API_KEY=你的第三方 API Key
 - 思考程度，按当前 provider 和模型动态显示可用档位
 - 输入方式，默认直接发送图片
 - OCR 语言和数学公式增强
+- OCR 预处理模式
 - 输出语言
 - 是否只讲思路
 
@@ -105,7 +106,7 @@ AI_API_KEY=你的第三方 API Key
 
 应用版本变化后首次打开会先显示整体功能向导，再显示当前版本新增向导。用户可以跳过，也可以随时从设置页重新查看。每次版本发布前必须确认这三类向导是否需要更新。
 
-设置页还提供“一键诊断”。诊断会检查连接模式、配置文件、代理地址、代理 Token、API 服务商、模型列表和当前模型，并输出可复制的脱敏报告。
+设置页还提供“一键诊断”。诊断会检查连接模式、配置文件、代理地址、代理 Token、API 服务商、模型列表、当前模型和安全边界，并输出可复制的脱敏报告。
 
 ## 截图、OCR 与追问
 
@@ -132,6 +133,20 @@ AI_API_KEY=你的第三方 API Key
 
 复制和导出的答案为 Markdown 文本记录，默认不包含截图、API Key、代理 Token 或代理地址。
 
+## 学习库与复习
+
+讲解成功后，应用会自动把当前题加入学习库。学习库支持：
+
+- 按标题、讲解、标签、知识点、题型和易错点搜索。
+- 按学科、掌握状态、收藏、今日待复习和错题筛选。
+- 记录复习次数、答对/答错次数、下次复习时间、难度和易错原因。
+- 对当前题标记“答错了”“有点忘”“答对了”或“很熟练”，并自动安排下次复习。
+- 批量导出当前筛选结果为 Markdown、Anki CSV 或 Obsidian Markdown。
+
+讲解完成后，应用会异步提取学科、知识点、题型、难度、关键点、易错点、标签和摘要。提取失败不会影响当前讲解或追问。
+
+设置页还提供“模型评测”，可用同一道 OCR 文本比较多个模型和 Prompt 模板，记录耗时、输出长度、成功/失败和主观评分。
+
 ## 隐私与安全
 
 - 默认只裁剪用户确认后的框选区域，不上传整屏。
@@ -139,6 +154,7 @@ AI_API_KEY=你的第三方 API Key
 - 渲染层 `localStorage` 只保存非敏感设置，例如连接模式、模型名、代理地址和 OCR 选项。
 - API Key、代理 Token、ngrok Token 不进入普通 `localStorage`、导出文件、公告或文档示例真实值。
 - 诊断报告必须脱敏。
+- 学习库和批量导出只包含文字记录、复习状态和结构化学习信息，不包含截图或敏感配置。
 - 公告接口公开，不需要 Token；API 代理接口必须需要 Token。
 
 ## 验证
@@ -149,6 +165,7 @@ npm run typecheck
 npm run lint
 npm run test
 npm run build
+npm run security:check
 node --check server/proxy-server.mjs
 node --check server/ngrok-dev.mjs
 node --check scripts/sync-release-notes.mjs
@@ -170,7 +187,7 @@ npm run validate
 npm run dist
 ```
 
-正式发布统一走 GitHub Actions，不在本机手动发布 GitHub Release。推送 `vX.Y.Z` tag 后，`.github/workflows/release-windows.yml` 会运行文档检查、类型检查、Lint、测试和 `npm run publish:win`，并用仓库自带 `GITHUB_TOKEN` 发布 Windows 安装包。
+正式发布统一走 GitHub Actions，不在本机手动发布 GitHub Release。推送 `vX.Y.Z` tag 后，`.github/workflows/release-windows.yml` 会运行文档检查、类型检查、Lint、测试、安全边界检查和 `npm run publish:win`，并用仓库自带 `GITHUB_TOKEN` 发布 Windows 安装包。
 
 发布步骤和发布后本地 `release/` 同步要求见 `docs/release.md`。
 

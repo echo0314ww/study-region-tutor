@@ -4,7 +4,15 @@ import {
   STUDY_LIBRARY_LIMIT,
   STUDY_LIBRARY_STORAGE_KEY
 } from './constants';
-import type { StudyItem, StudyItemPatch, StudyItemStatus, StudySubject, UiConversationTurn } from './uiTypes';
+import type {
+  StudyDifficulty,
+  StudyItem,
+  StudyItemPatch,
+  StudyItemStatus,
+  StudyReviewGrade,
+  StudySubject,
+  UiConversationTurn
+} from './uiTypes';
 
 export const STUDY_SUBJECT_LABELS: Record<StudySubject, string> = {
   general: '通用',
@@ -20,14 +28,30 @@ export const STUDY_STATUS_LABELS: Record<StudyItemStatus, string> = {
   mastered: '已掌握'
 };
 
+export const STUDY_DIFFICULTY_LABELS: Record<StudyDifficulty, string> = {
+  easy: '容易',
+  normal: '普通',
+  hard: '困难'
+};
+
+export const STUDY_REVIEW_GRADE_LABELS: Record<StudyReviewGrade, string> = {
+  again: '答错了',
+  hard: '有点忘',
+  good: '答对了',
+  easy: '很熟练'
+};
+
 export const STUDY_SUBJECTS = Object.keys(STUDY_SUBJECT_LABELS) as StudySubject[];
 export const STUDY_STATUSES = Object.keys(STUDY_STATUS_LABELS) as StudyItemStatus[];
+export const STUDY_DIFFICULTIES = Object.keys(STUDY_DIFFICULTY_LABELS) as StudyDifficulty[];
 
 export interface StudyItemFilter {
   query: string;
   subject: StudySubject | 'all';
   status: StudyItemStatus | 'all';
   favoritesOnly: boolean;
+  dueOnly?: boolean;
+  mistakesOnly?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -42,12 +66,20 @@ function safeBoolean(value: unknown): boolean {
   return typeof value === 'boolean' ? value : false;
 }
 
+function safeNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
 function isStudySubject(value: unknown): value is StudySubject {
   return typeof value === 'string' && STUDY_SUBJECTS.includes(value as StudySubject);
 }
 
 function isStudyStatus(value: unknown): value is StudyItemStatus {
   return typeof value === 'string' && STUDY_STATUSES.includes(value as StudyItemStatus);
+}
+
+function isStudyDifficulty(value: unknown): value is StudyDifficulty {
+  return typeof value === 'string' && STUDY_DIFFICULTIES.includes(value as StudyDifficulty);
 }
 
 function sanitizeTags(raw: unknown): string[] {
@@ -100,12 +132,37 @@ function sanitizeTurn(raw: unknown): UiConversationTurn | undefined {
   };
 }
 
+function sanitizeMetadata(raw: unknown): StudyItem['metadata'] {
+  if (!isRecord(raw) || !isStudySubject(raw.subject) || !isStudyDifficulty(raw.difficulty)) {
+    return undefined;
+  }
+
+  return {
+    subject: raw.subject,
+    topic: safeString(raw.topic).slice(0, 80),
+    questionType: safeString(raw.questionType).slice(0, 80),
+    difficulty: raw.difficulty,
+    keyPoints: sanitizeTags(raw.keyPoints),
+    mistakeTraps: sanitizeTags(raw.mistakeTraps),
+    tags: sanitizeTags(raw.tags),
+    summary: safeString(raw.summary).slice(0, 240),
+    extractedAt: safeString(raw.extractedAt)
+  };
+}
+
 export function deriveStudyTitle(turns: UiConversationTurn[]): string {
   const firstUser = turns.find((turn) => turn.role === 'user' && turn.content.trim());
   const firstAssistant = turns.find((turn) => turn.role === 'assistant' && turn.content.trim());
   const source = (firstUser || firstAssistant)?.content.replace(/\s+/g, ' ').trim() || '未命名题目';
 
   return source.length > 42 ? `${source.slice(0, 42)}...` : source;
+}
+
+function deriveMistakeReason(turns: UiConversationTurn[]): string {
+  const text = turns.map((turn) => turn.content).join('\n');
+  const match = text.match(/(?:易错点|常见错误|注意)[:：]?\s*([^\n。；;]{4,80})/);
+
+  return match?.[1]?.trim() || '';
 }
 
 function inferSubjectFromTurns(turns: UiConversationTurn[]): StudySubject {
@@ -149,6 +206,9 @@ function sanitizeStudyItem(raw: unknown): StudyItem | undefined {
   const status = isStudyStatus(raw.status) ? raw.status : 'new';
   const createdAt = safeString(raw.createdAt) || new Date().toISOString();
   const updatedAt = safeString(raw.updatedAt) || createdAt;
+  const reviewCount = safeNumber(raw.reviewCount);
+  const correctCount = safeNumber(raw.correctCount);
+  const wrongCount = safeNumber(raw.wrongCount);
 
   return {
     id,
@@ -156,6 +216,7 @@ function sanitizeStudyItem(raw: unknown): StudyItem | undefined {
     createdAt,
     updatedAt,
     lastReviewedAt: safeString(raw.lastReviewedAt),
+    nextReviewAt: safeString(raw.nextReviewAt),
     appVersion: safeString(raw.appVersion),
     model: safeString(raw.model),
     providerId: safeString(raw.providerId),
@@ -165,6 +226,12 @@ function sanitizeStudyItem(raw: unknown): StudyItem | undefined {
     tags: sanitizeTags(raw.tags),
     favorite: safeBoolean(raw.favorite),
     status,
+    reviewCount,
+    correctCount,
+    wrongCount,
+    difficulty: isStudyDifficulty(raw.difficulty) ? raw.difficulty : wrongCount > 0 ? 'hard' : 'normal',
+    mistakeReason: safeString(raw.mistakeReason).slice(0, 160) || deriveMistakeReason(turns),
+    metadata: sanitizeMetadata(raw.metadata),
     turns
   };
 }
@@ -228,6 +295,7 @@ export function upsertStudyItem(
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     lastReviewedAt: existing?.lastReviewedAt || '',
+    nextReviewAt: existing?.nextReviewAt || '',
     appVersion: input.appVersion,
     model: input.settings.model.trim(),
     providerId: input.settings.providerId.trim(),
@@ -237,6 +305,12 @@ export function upsertStudyItem(
     tags: existing?.tags || [],
     favorite: existing?.favorite || false,
     status: existing?.status || 'new',
+    reviewCount: existing?.reviewCount || 0,
+    correctCount: existing?.correctCount || 0,
+    wrongCount: existing?.wrongCount || 0,
+    difficulty: existing?.difficulty || 'normal',
+    mistakeReason: existing?.mistakeReason || deriveMistakeReason(turns),
+    metadata: existing?.metadata,
     turns
   };
 
@@ -258,9 +332,109 @@ export function updateStudyItemMetadata(items: StudyItem[], id: string, patch: S
       ...patch,
       title: patch.title === undefined ? item.title : patch.title.trim() || deriveStudyTitle(item.turns),
       tags: patch.tags === undefined ? item.tags : sanitizeTags(patch.tags),
+      mistakeReason:
+        patch.mistakeReason === undefined ? item.mistakeReason : patch.mistakeReason.trim().slice(0, 160),
       updatedAt: now
     };
   });
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function nextIntervalDays(item: StudyItem, grade: StudyReviewGrade): number {
+  if (grade === 'again') {
+    return 1;
+  }
+
+  if (grade === 'hard') {
+    return 3;
+  }
+
+  const successfulReviews = item.correctCount + 1;
+
+  if (grade === 'easy') {
+    return successfulReviews >= 3 ? 60 : successfulReviews === 2 ? 30 : 14;
+  }
+
+  return successfulReviews >= 3 ? 30 : successfulReviews === 2 ? 14 : 7;
+}
+
+export function scheduleNextReview(item: StudyItem, grade: StudyReviewGrade, reviewedAt = new Date()): StudyItemPatch {
+  const reviewedAtIso = reviewedAt.toISOString();
+  const correctIncrement = grade === 'good' || grade === 'easy' ? 1 : 0;
+  const wrongIncrement = grade === 'again' ? 1 : 0;
+  const correctCount = item.correctCount + correctIncrement;
+  const wrongCount = item.wrongCount + wrongIncrement;
+  const reviewCount = item.reviewCount + 1;
+  const nextReviewAt = addDays(reviewedAt, nextIntervalDays(item, grade)).toISOString();
+  const status: StudyItemStatus =
+    grade === 'again' || grade === 'hard' ? 'reviewing' : correctCount >= 3 ? 'mastered' : 'reviewing';
+  const difficulty: StudyDifficulty = grade === 'again' || grade === 'hard' ? 'hard' : grade === 'easy' ? 'easy' : item.difficulty;
+
+  return {
+    lastReviewedAt: reviewedAtIso,
+    nextReviewAt,
+    reviewCount,
+    correctCount,
+    wrongCount,
+    status,
+    difficulty
+  };
+}
+
+export function updateStudyItemReviewResult(
+  items: StudyItem[],
+  id: string,
+  grade: StudyReviewGrade,
+  reviewedAt = new Date()
+): StudyItem[] {
+  const item = items.find((current) => current.id === id);
+
+  if (!item) {
+    return items;
+  }
+
+  return updateStudyItemMetadata(items, id, scheduleNextReview(item, grade, reviewedAt));
+}
+
+export function isStudyItemDue(item: StudyItem, now = new Date()): boolean {
+  if (item.status === 'mastered') {
+    return Boolean(item.nextReviewAt) && new Date(item.nextReviewAt).getTime() <= now.getTime();
+  }
+
+  if (!item.nextReviewAt) {
+    return true;
+  }
+
+  const dueAt = new Date(item.nextReviewAt);
+
+  return Number.isNaN(dueAt.getTime()) || dueAt.getTime() <= now.getTime();
+}
+
+export function getDueStudyItems(items: StudyItem[], now = new Date()): StudyItem[] {
+  return items.filter((item) => isStudyItemDue(item, now));
+}
+
+export function studyLibraryStats(items: StudyItem[], now = new Date()): {
+  total: number;
+  due: number;
+  newCount: number;
+  reviewing: number;
+  mastered: number;
+  mistakes: number;
+} {
+  return {
+    total: items.length,
+    due: getDueStudyItems(items, now).length,
+    newCount: items.filter((item) => item.status === 'new').length,
+    reviewing: items.filter((item) => item.status === 'reviewing').length,
+    mastered: items.filter((item) => item.status === 'mastered').length,
+    mistakes: items.filter((item) => item.wrongCount > 0).length
+  };
 }
 
 function searchableText(item: StudyItem): string {
@@ -270,6 +444,13 @@ function searchableText(item: StudyItem): string {
     item.providerId,
     STUDY_SUBJECT_LABELS[item.subject],
     STUDY_STATUS_LABELS[item.status],
+    STUDY_DIFFICULTY_LABELS[item.difficulty],
+    item.mistakeReason,
+    item.metadata?.topic,
+    item.metadata?.questionType,
+    item.metadata?.summary,
+    ...(item.metadata?.keyPoints || []),
+    ...(item.metadata?.mistakeTraps || []),
     ...item.tags,
     ...item.turns.map((turn) => turn.content)
   ]
@@ -282,6 +463,14 @@ export function filterStudyItems(items: StudyItem[], filter: StudyItemFilter): S
 
   return items.filter((item) => {
     if (filter.favoritesOnly && !item.favorite) {
+      return false;
+    }
+
+    if (filter.dueOnly && !isStudyItemDue(item)) {
+      return false;
+    }
+
+    if (filter.mistakesOnly && item.wrongCount === 0) {
       return false;
     }
 

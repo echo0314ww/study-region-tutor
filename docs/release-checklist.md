@@ -34,6 +34,7 @@
 - [ ] `npm run lint`
 - [ ] `npm run test`
 - [ ] `npm run build`
+- [ ] `npm run security:check`
 - [ ] `node --check server/proxy-server.mjs`
 - [ ] `node --check server/ngrok-dev.mjs`
 - [ ] `node --check scripts/sync-release-notes.mjs`
@@ -54,7 +55,7 @@
 - [ ] 已回看历史版本新增向导，确认旧版本条目仍可从“历史版本向导回顾”访问。
 - [ ] Git 工作区中没有误提交 `out/`、`release/`、`node_modules/` 或本地配置文件。
 - [ ] 发布统一走 GitHub Actions：推送 `vX.Y.Z` tag 触发 `.github/workflows/release-windows.yml`，不要在本机手动发布 GitHub Release。
-- [ ] `.github/workflows/release-windows.yml` 会运行 `npm run docs:check`、`typecheck`、`lint`、`test` 和 `npm run publish:win`。
+- [ ] `.github/workflows/release-windows.yml` 会运行 `npm run docs:check`、`typecheck`、`lint`、`test`、`security:check` 和 `npm run publish:win`。
 - [ ] GitHub Actions 使用仓库自带 `GITHUB_TOKEN` 和兼容变量 `GH_TOKEN`，不需要 Personal Access Token。
 - [ ] Release body 由 `scripts/sync-release-notes.mjs` 从 `RELEASE_NOTES.md` 同步。
 - [ ] GitHub Actions 发布完成后，运行 `npm run dist` 同步本地 `release/`。

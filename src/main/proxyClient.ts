@@ -3,6 +3,9 @@ import type {
   ModelListResult,
   QuestionSessionTurn,
   ReasoningEffortSetting,
+  StudyDifficulty,
+  StudyMetadata,
+  StudySubject,
   TutorSettings
 } from '../shared/types';
 import { throwIfAborted } from './cancel';
@@ -10,6 +13,8 @@ import type { FollowUpContext, ModelAnswer } from './openaiClient';
 import {
   buildFollowUpHistoryPrompt,
   buildFollowUpQuestionPrompt,
+  buildStudyMetadataInstructions,
+  buildStudyMetadataPrompt,
   buildTutorInstructions,
   buildTutorTextPrompt,
   buildTutorUserPrompt
@@ -40,6 +45,8 @@ interface ProxyTokenSelection {
 const SAVED_PROXY_TOKEN_INVALID_MESSAGE = '代理访问 Token 已失效，请重新填写最新的 TUTOR_PROXY_TOKEN。';
 const ENTERED_PROXY_TOKEN_INVALID_MESSAGE = '代理访问 Token 验证失败，请检查后重新填写。';
 const ENV_PROXY_TOKEN_INVALID_MESSAGE = '环境变量 TUTOR_PROXY_TOKEN 验证失败，请检查当前启动环境。';
+const STUDY_SUBJECTS: StudySubject[] = ['general', 'math', 'english', 'physics', 'programming'];
+const STUDY_DIFFICULTIES: StudyDifficulty[] = ['easy', 'normal', 'hard'];
 
 function proxyBaseUrl(settings: TutorSettings): string {
   const baseUrl = (settings.proxyUrl.trim() || process.env.TUTOR_PROXY_URL?.trim() || '').replace(/\/+$/, '');
@@ -118,6 +125,70 @@ function providerId(settings: TutorSettings): string {
 
 function reasoningEffort(settings: TutorSettings): ReasoningEffortSetting {
   return settings.reasoningEffort;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function safeMetadataString(value: unknown, maxLength: number): string {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, maxLength) : '';
+}
+
+function safeMetadataList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of value) {
+    const item = safeMetadataString(raw, 32);
+
+    if (!item || seen.has(item)) {
+      continue;
+    }
+
+    seen.add(item);
+    result.push(item);
+  }
+
+  return result.slice(0, 6);
+}
+
+function metadataFromAnswer(text: string): StudyMetadata {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  const source = fenced?.[1] || text;
+  const start = source.indexOf('{');
+  const end = source.lastIndexOf('}');
+
+  if (start < 0 || end <= start) {
+    throw new Error('结构化信息提取结果不是 JSON 对象。');
+  }
+
+  const parsed = JSON.parse(source.slice(start, end + 1)) as unknown;
+
+  if (!isRecord(parsed)) {
+    throw new Error('结构化信息提取结果不是 JSON 对象。');
+  }
+
+  const subject = STUDY_SUBJECTS.includes(parsed.subject as StudySubject) ? (parsed.subject as StudySubject) : 'general';
+  const difficulty = STUDY_DIFFICULTIES.includes(parsed.difficulty as StudyDifficulty)
+    ? (parsed.difficulty as StudyDifficulty)
+    : 'normal';
+
+  return {
+    subject,
+    difficulty,
+    topic: safeMetadataString(parsed.topic, 80),
+    questionType: safeMetadataString(parsed.questionType, 80),
+    keyPoints: safeMetadataList(parsed.keyPoints),
+    mistakeTraps: safeMetadataList(parsed.mistakeTraps),
+    tags: safeMetadataList(parsed.tags),
+    summary: safeMetadataString(parsed.summary, 240),
+    extractedAt: new Date().toISOString()
+  };
 }
 
 async function proxyJson<T>(settings: TutorSettings, path: string, body?: unknown): Promise<T> {
@@ -393,6 +464,49 @@ export async function proxyExplainRecognizedTextWithMetadata(
   }
 
   return answer;
+}
+
+export async function proxyGenerateTextCompletion(
+  instructions: string,
+  prompt: string,
+  settings: TutorSettings,
+  signal?: AbortSignal
+): Promise<ModelAnswer> {
+  const answer = await proxyStream(
+    settings,
+    '/explain/stream',
+    {
+      ...streamPayloadBase(settings),
+      task: {
+        type: 'text',
+        instructions,
+        textPrompt: prompt
+      }
+    },
+    signal,
+    undefined
+  );
+
+  if (!answer.text) {
+    throw new Error('代理服务返回了无法解析的文本结构。');
+  }
+
+  return answer;
+}
+
+export async function proxyExtractStudyMetadataFromText(
+  text: string,
+  settings: TutorSettings,
+  signal?: AbortSignal
+): Promise<StudyMetadata> {
+  const answer = await proxyGenerateTextCompletion(
+    buildStudyMetadataInstructions(settings),
+    buildStudyMetadataPrompt(text),
+    settings,
+    signal
+  );
+
+  return metadataFromAnswer(answer.text);
 }
 
 export async function proxyAskFollowUp(

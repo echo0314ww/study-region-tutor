@@ -10,6 +10,9 @@ import type {
   EndQuestionSessionRequest,
   ExportConversationRequest,
   ExportConversationResult,
+  ExportStudyLibraryRequest,
+  ExtractStudyMetadataRequest,
+  ExtractStudyMetadataResult,
   ExplainRecognizedTextRequest,
   ExplainProgressEvent,
   ExplainRequest,
@@ -23,6 +26,8 @@ import type {
   ProxyHealthResult,
   RegionBounds,
   RunDiagnosticsRequest,
+  RunPromptEvalRequest,
+  RunPromptEvalResult,
   TutorSettings,
   UpdateStatusEvent
 } from '../shared/types';
@@ -60,6 +65,12 @@ const api = {
   quitApp: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.quitApp),
   exportConversation: (request: ExportConversationRequest): Promise<ExportConversationResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.exportConversation, request),
+  exportStudyLibrary: (request: ExportStudyLibraryRequest): Promise<ExportConversationResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.exportStudyLibrary, request),
+  extractStudyMetadata: (request: ExtractStudyMetadataRequest): Promise<ExtractStudyMetadataResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.extractStudyMetadata, request),
+  runPromptEval: (request: RunPromptEvalRequest): Promise<RunPromptEvalResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.runPromptEval, request),
   saveProxyToken: (token: string): Promise<ApiRuntimeDefaults> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveProxyToken, token),
   clearProxyToken: (): Promise<ApiRuntimeDefaults> => ipcRenderer.invoke(IPC_CHANNELS.clearProxyToken),

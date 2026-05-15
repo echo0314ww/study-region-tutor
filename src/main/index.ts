@@ -11,6 +11,9 @@ import type {
   EndQuestionSessionRequest,
   ExportConversationRequest,
   ExportConversationResult,
+  ExportStudyLibraryRequest,
+  ExtractStudyMetadataRequest,
+  ExtractStudyMetadataResult,
   ExplainRecognizedTextRequest,
   ExplainRequest,
   ExplainRegionResult,
@@ -24,6 +27,8 @@ import type {
   RecognizeRegionRequest,
   RegionBounds,
   RunDiagnosticsRequest,
+  RunPromptEvalRequest,
+  RunPromptEvalResult,
   TutorSettings,
   UpdateStatusEvent
 } from '../shared/types';
@@ -35,6 +40,7 @@ import {
   askFollowUp,
   explainImageWithMetadata,
   explainRecognizedTextWithMetadata,
+  extractStudyMetadataFromText,
   getRuntimeApiDefaults,
   listApiProviders,
   listAvailableModels
@@ -58,12 +64,13 @@ import {
   proxyAskFollowUp,
   proxyExplainImageWithMetadata,
   proxyExplainRecognizedTextWithMetadata,
+  proxyExtractStudyMetadataFromText,
   proxyListApiProviders,
   proxyListAvailableModels
 } from './proxyClient';
 import { clearSavedProxyToken, hasSavedProxyToken, saveProxyToken } from './proxyTokenStore';
 import { runDiagnostics } from './diagnostics';
-import { exportConversationMarkdown } from './exportConversation';
+import { exportConversationMarkdown, exportStudyLibrary } from './exportConversation';
 
 const { autoUpdater } = electronUpdater;
 
@@ -402,6 +409,71 @@ function explainTextRequest(
     : explainRecognizedTextWithMetadata(recognizedText, settings, signal, onDelta);
 }
 
+function extractStudyMetadataRequest(
+  text: string,
+  settings: TutorSettings,
+  signal: AbortSignal
+): Promise<ExtractStudyMetadataResult['metadata']> {
+  return isProxyMode(settings)
+    ? proxyExtractStudyMetadataFromText(text, settings, signal)
+    : extractStudyMetadataFromText(text, settings, signal);
+}
+
+async function runPromptEvalRequest(request: RunPromptEvalRequest): Promise<RunPromptEvalResult> {
+  const inputText = request.inputText.trim();
+
+  if (!inputText) {
+    throw new Error('请输入用于评测的题目或 OCR 文本。');
+  }
+
+  const runs: RunPromptEvalResult['runs'] = [];
+
+  for (const variant of request.variants) {
+    const startedAt = Date.now();
+    const settings: TutorSettings = {
+      ...request.settings,
+      providerId: variant.providerId || request.settings.providerId,
+      model: variant.model || request.settings.model,
+      promptTemplateId: variant.promptTemplateId,
+      customPromptInstruction: variant.customPromptInstruction ?? request.settings.customPromptInstruction
+    };
+
+    try {
+      const answer = isProxyMode(settings)
+        ? await proxyExplainRecognizedTextWithMetadata(inputText, settings)
+        : await explainRecognizedTextWithMetadata(inputText, settings);
+      const output = answer.text.trim();
+
+      runs.push({
+        id: variant.id,
+        createdAt: new Date(startedAt).toISOString(),
+        providerId: settings.providerId,
+        model: settings.model,
+        promptTemplateId: settings.promptTemplateId || 'standard',
+        latencyMs: Date.now() - startedAt,
+        outputLength: output.length,
+        success: true,
+        output
+      });
+    } catch (error) {
+      runs.push({
+        id: variant.id,
+        createdAt: new Date(startedAt).toISOString(),
+        providerId: settings.providerId,
+        model: settings.model,
+        promptTemplateId: settings.promptTemplateId || 'standard',
+        latencyMs: Date.now() - startedAt,
+        outputLength: 0,
+        success: false,
+        output: '',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  return { runs };
+}
+
 async function captureRegionForRequest(
   request: Pick<ExplainRequest, 'region'>,
   signal: AbortSignal,
@@ -564,6 +636,27 @@ function registerIpc(): void {
       return exportConversationMarkdown(mainWindow, request);
     }
   );
+
+  ipcMain.handle(
+    IPC_CHANNELS.exportStudyLibrary,
+    (_event, request: ExportStudyLibraryRequest): Promise<ExportConversationResult> => {
+      return exportStudyLibrary(mainWindow, request);
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.extractStudyMetadata,
+    async (_event, request: ExtractStudyMetadataRequest): Promise<ExtractStudyMetadataResult> => {
+      const controller = new AbortController();
+      return {
+        metadata: await extractStudyMetadataRequest(request.text, request.settings, controller.signal)
+      };
+    }
+  );
+
+  ipcMain.handle(IPC_CHANNELS.runPromptEval, (_event, request: RunPromptEvalRequest): Promise<RunPromptEvalResult> => {
+    return runPromptEvalRequest(request);
+  });
 
   ipcMain.handle(IPC_CHANNELS.listModels, (_event, settings: TutorSettings): Promise<ModelListResult> => {
     return isProxyMode(settings) ? proxyListAvailableModels(settings) : listAvailableModels(settings);

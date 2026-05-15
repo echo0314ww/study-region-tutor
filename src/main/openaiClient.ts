@@ -8,6 +8,9 @@ import type {
   ModelOption,
   QuestionSessionTurn,
   ReasoningEffortSetting,
+  StudyDifficulty,
+  StudyMetadata,
+  StudySubject,
   TutorSettings
 } from '../shared/types';
 import { isAnthropicAdaptiveEffortModel, normalizeReasoningEffort } from '../shared/reasoning';
@@ -20,6 +23,8 @@ import { isOperationCanceled, throwIfAborted } from './cancel';
 import {
   buildFollowUpHistoryPrompt,
   buildFollowUpQuestionPrompt,
+  buildStudyMetadataInstructions,
+  buildStudyMetadataPrompt,
   buildTutorInstructions,
   buildTutorTextPrompt,
   buildTutorUserPrompt
@@ -400,6 +405,74 @@ export function extractModelOptions(data: unknown): ModelOption[] {
 
 function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const STUDY_SUBJECTS: StudySubject[] = ['general', 'math', 'english', 'physics', 'programming'];
+const STUDY_DIFFICULTIES: StudyDifficulty[] = ['easy', 'normal', 'hard'];
+
+function safeMetadataString(value: unknown, maxLength: number): string {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, maxLength) : '';
+}
+
+function safeMetadataList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const items: string[] = [];
+
+  for (const raw of value) {
+    const item = safeMetadataString(raw, 32);
+
+    if (!item || seen.has(item)) {
+      continue;
+    }
+
+    seen.add(item);
+    items.push(item);
+  }
+
+  return items.slice(0, 6);
+}
+
+function extractJsonObject(text: string): Record<string, unknown> {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  const source = fenced?.[1] || text;
+  const start = source.indexOf('{');
+  const end = source.lastIndexOf('}');
+
+  if (start < 0 || end <= start) {
+    throw new Error('结构化信息提取结果不是 JSON 对象。');
+  }
+
+  const parsed = JSON.parse(source.slice(start, end + 1)) as unknown;
+
+  if (!isRecord(parsed)) {
+    throw new Error('结构化信息提取结果不是 JSON 对象。');
+  }
+
+  return parsed;
+}
+
+function metadataFromAnswer(text: string): StudyMetadata {
+  const data = extractJsonObject(text);
+  const subject = STUDY_SUBJECTS.includes(data.subject as StudySubject) ? (data.subject as StudySubject) : 'general';
+  const difficulty = STUDY_DIFFICULTIES.includes(data.difficulty as StudyDifficulty)
+    ? (data.difficulty as StudyDifficulty)
+    : 'normal';
+
+  return {
+    subject,
+    topic: safeMetadataString(data.topic, 80),
+    questionType: safeMetadataString(data.questionType, 80),
+    difficulty,
+    keyPoints: safeMetadataList(data.keyPoints),
+    mistakeTraps: safeMetadataList(data.mistakeTraps),
+    tags: safeMetadataList(data.tags),
+    summary: safeMetadataString(data.summary, 240),
+    extractedAt: new Date().toISOString()
+  };
 }
 
 function apiDisplayName(config: { providerName?: string }): string {
@@ -1259,6 +1332,101 @@ async function explainTextWithAnthropic(
   }
 
   return extractAnthropicAnswer(await postJson(config, body, signal));
+}
+
+export async function generateTextCompletion(
+  instructions: string,
+  prompt: string,
+  settings: TutorSettings,
+  signal?: AbortSignal
+): Promise<ModelAnswer> {
+  throwIfAborted(signal);
+  const config = resolveApiConfig(settings);
+
+  if (config.apiProviderType === 'gemini') {
+    const body = withGeminiThinking(
+      {
+        system_instruction: {
+          parts: [{ text: instructions }]
+        },
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }]
+          }
+        ]
+      },
+      config
+    );
+
+    return extractGeminiAnswer(await postJson(config, body, signal));
+  }
+
+  if (config.apiProviderType === 'anthropic') {
+    const body = withAnthropicThinking({
+      model: config.model,
+      system: instructions,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: prompt }]
+        }
+      ]
+    }, config);
+
+    return extractAnthropicAnswer(await postJson(config, body, signal));
+  }
+
+  if (config.apiMode === 'responses') {
+    const body = withReasoning(
+      {
+        model: config.model,
+        instructions,
+        input: prompt
+      },
+      config
+    );
+
+    return extractResponsesAnswer(await postJson(config, body, signal));
+  }
+
+  const body = withChatReasoning(
+    {
+      model: config.model,
+      messages: [
+        {
+          role: 'system',
+          content: instructions
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ]
+    },
+    config
+  );
+
+  return extractChatAnswer(await postJson(config, body, signal));
+}
+
+export async function extractStudyMetadataFromText(
+  text: string,
+  settings: TutorSettings,
+  signal?: AbortSignal
+): Promise<StudyMetadata> {
+  const answer = await generateTextCompletion(
+    buildStudyMetadataInstructions(settings),
+    buildStudyMetadataPrompt(text),
+    settings,
+    signal
+  );
+
+  if (!answer.text) {
+    throw new Error('结构化信息提取没有返回内容。');
+  }
+
+  return metadataFromAnswer(answer.text);
 }
 
 function limitContextText(text: string, maxLength: number): string {

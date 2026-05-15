@@ -25,10 +25,11 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 docs/START_HERE.m
 - 支持多 provider、模型列表刷新、按 provider/model 动态显示思考程度。
 - 支持公告系统、版本更新公告、私人公告和公告已读红点。
 - 支持整体功能向导、本版本新增向导和历史版本向导回顾。
-- 支持首次配置向导、代理管理面板、快捷键自定义、本地历史、Provider 配置生成器和 Prompt 模板。
-- OCR 确认页支持多路候选切换；诊断支持快速检查和实际请求文本接口的深度测试；公告支持按分类分组。
+- 支持首次配置向导、代理管理面板、快捷键自定义、学习库/错题本、Provider 配置生成器、Prompt 模板和模型评测。
+- OCR 确认页支持多路候选切换和可选预处理；诊断支持快速检查、实际请求文本接口的深度测试和安全边界检查；公告支持按分类分组。
+- 学习库支持待复习/错题筛选、复习反馈、结构化知识点归类，以及 Markdown、Anki CSV、Obsidian 批量导出。
 - 发布统一走 GitHub Actions，推送 `vX.Y.Z` tag 后自动构建并发布 Windows 安装包。
-- 已有 `npm run docs:check` 检查版本、文档结构、版本公告、发布说明、向导和敏感信息风险。
+- 已有 `npm run docs:check` 检查版本、文档结构、版本公告、发布说明、向导和敏感信息风险；`npm run security:check` 检查安全边界。
 
 ## 任务到文档映射
 
@@ -62,6 +63,7 @@ npm run typecheck
 npm run lint
 npm run test
 npm run build
+npm run security:check
 node --check server/proxy-server.mjs
 node --check server/ngrok-dev.mjs
 node --check scripts/sync-release-notes.mjs

@@ -43,6 +43,7 @@
 
 ```bash
 npm run docs:check
+npm run security:check
 ```
 
 代码改动完成后优先运行：

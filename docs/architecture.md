@@ -30,7 +30,8 @@ Study Region Tutor 是 Electron + React + TypeScript 桌面应用，用于学习
 5. 默认模式直接把图片发送给当前第三方 API 服务商；OpenAI-compatible、Gemini 原生和 Anthropic 原生由主进程或代理服务按 provider 类型转换请求格式。
 6. 本地 OCR 模式会先展示可编辑识别文本；用户确认后才发送文本讲解请求。
 7. 讲解成功后创建本题内存会话，后续追问只发送题目上下文、历史问答和新问题，不重新发送截图。
-8. 结果面板底部可以复制或导出当前题目的答案记录，底层仍以 Markdown 文件格式保存。
+8. 讲解成功后，渲染层把本题保存到学习库；主进程可异步提取学科、知识点、题型、难度、关键点、易错点、标签和摘要，失败时静默降级。
+9. 结果面板底部可以复制或导出当前题目的答案记录，也可以标记复习反馈；学习库可批量导出 Markdown、Anki CSV 或 Obsidian Markdown。
 
 ## API 连接模式
 
@@ -58,6 +59,16 @@ API 代理接口需要 Token：
 - `POST /explain/stream`
 - `POST /follow-up/stream`
 
+## 学习库、评测与导出
+
+学习库数据保存在渲染层版本化 `localStorage` 中，只包含文字会话、非敏感设置摘要、复习状态和结构化学习信息。学习项包含复习次数、答对/答错次数、下次复习时间、难度、易错原因、学科、标签和可选 metadata。
+
+结构化信息提取通过主进程或代理服务复用当前 provider 文本请求链路完成。渲染层只发送当前题目的文字会话；模型返回 JSON 后会经过白名单字段解析、长度限制和标签去重，解析失败不会影响原始学习记录。
+
+模型 / Prompt 评测面板复用 OCR 文本讲解请求链路，用同一段题目文本对比多个模型和 Prompt 模板，并把耗时、输出长度、成功/失败、输出内容和用户评分保存在本地评测历史中。
+
+答案导出和学习库批量导出均由 `src/shared/exportConversation.ts` 生成内容，主进程只负责保存文件。学习库批量导出支持单文件 Markdown、Anki CSV 和 Obsidian 多文件 Markdown，仍不包含截图、API Key、代理 Token 或代理服务地址。
+
 ## IPC 边界
 
 渲染层不直接读取文件系统、环境变量或 API Key。需要主进程能力时，通过 `src/shared/ipc.ts` 中定义的 IPC 通道和 `src/preload/index.ts` 暴露的受控 API 完成。
@@ -68,7 +79,9 @@ API 代理接口需要 Token：
 - API 请求和追问。
 - 设置、服务商、模型列表和连接模式。
 - 一键诊断。
-- 答案复制与 Markdown 导出。
+- 答案复制、单题 Markdown 导出和学习库批量导出。
+- 结构化学习信息提取。
+- 模型 / Prompt 对比评测。
 - 自动更新。
 
 ## 隐私与安全约定
@@ -77,7 +90,8 @@ API 代理接口需要 Token：
 - API Key 只在主进程或代理服务端读取和使用，不回填到设置界面。
 - 渲染层 `localStorage` 只保存非敏感设置，例如连接模式、模型名、代理地址和 OCR 选项；API Key 和代理 Token 不进入普通 `localStorage`。
 - 代理 Token 可以保存在用户本机主进程安全存储路径中，但不会写入导出 Markdown。
-- 诊断报告必须脱敏，不能输出 API Key、代理 Token、ngrok Token 或完整敏感请求头。
+- 诊断报告必须脱敏，不能输出 API Key、代理 Token、ngrok Token 或完整敏感请求头；诊断中包含安全边界检查项。
+- `npm run security:check` 检查渲染层持久化白名单、BrowserWindow 安全选项和导出隐私边界，GitHub Actions 发布流程也会运行该检查。
 - Renderer HTML 带有基础 CSP；BrowserWindow 保持 `contextIsolation: true`、`nodeIntegration: false` 和 `webSecurity: true`。`sandbox` 仍为 `false`，后续若要启用需要先验证当前 preload/IPC 打包方式。
 - 文档和公告不得包含真实密钥、Token 或个人账号凭据。
 
@@ -85,7 +99,7 @@ API 代理接口需要 Token：
 
 Windows 正式发布通过 GitHub Actions 完成，不在本机手动发布 GitHub Release。
 
-- `.github/workflows/release-windows.yml`：推送 `vX.Y.Z` tag 或手动 `workflow_dispatch` 时运行，执行依赖安装、文档检查、类型检查、Lint、测试和 `npm run publish:win`。
+- `.github/workflows/release-windows.yml`：推送 `vX.Y.Z` tag 或手动 `workflow_dispatch` 时运行，执行依赖安装、文档检查、类型检查、Lint、测试、安全边界检查和 `npm run publish:win`。
 - `.github/workflows/sync-release-notes.yml`：当 `RELEASE_NOTES.md`、同步脚本或工作流变化时，把 `RELEASE_NOTES.md` 中的版本说明同步到已有 GitHub Release。
 - `scripts/sync-release-notes.mjs`：从 `RELEASE_NOTES.md` 读取对应 tag 的说明，并写入 GitHub Release body。
 - `npm run dist`：只用于 GitHub Actions 发布成功后同步本地 `release/` 产物。

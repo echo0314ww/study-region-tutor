@@ -40,6 +40,7 @@ export const DEFAULT_SETTINGS: TutorSettings = {
   inputMode: 'image',
   ocrLanguage: 'chi_sim',
   ocrMathMode: true,
+  ocrPreprocessMode: 'auto',
   reasoningEffort: 'off',
   shortcuts: DEFAULT_SHORTCUTS,
   promptTemplateId: 'standard',

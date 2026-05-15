@@ -906,6 +906,26 @@ kbd {
   gap: 8px;
 }
 
+.history-stats,
+.history-export-row,
+.history-review-row,
+.history-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.history-stats span,
+.history-metadata span {
+  padding: 3px 7px;
+  border: 1px solid #d6e4dc;
+  border-radius: 999px;
+  background: #f6faf7;
+  color: #425648;
+  font-size: 11px;
+}
+
 .history-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1002,6 +1022,19 @@ kbd {
   gap: 8px;
 }
 
+.history-review-row {
+  grid-column: 1 / -1;
+}
+
+.history-review-row span {
+  color: #607167;
+  font-size: 11px;
+}
+
+.history-metadata {
+  grid-column: 1 / -1;
+}
+
 .history-item-fields label {
   display: grid;
   gap: 4px;
@@ -1040,22 +1073,83 @@ kbd {
 }
 
 .provider-generator-page,
-.prompt-template-page {
+.prompt-template-page,
+.eval-page {
   display: grid;
   gap: 10px;
 }
 
 .provider-generator-header,
-.prompt-template-header {
+.prompt-template-header,
+.eval-header {
   display: grid;
   gap: 4px;
 }
 
 .provider-generator-header span,
-.prompt-template-header span {
+.prompt-template-header span,
+.eval-header span {
   color: #607167;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.eval-page textarea {
+  resize: vertical;
+}
+
+.eval-template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+
+.eval-history {
+  display: grid;
+  gap: 8px;
+}
+
+.eval-run {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid #d6e4dc;
+  border-radius: 8px;
+  background: #fbfdfb;
+}
+
+.eval-run.failed {
+  border-color: #efc1b6;
+  background: #fff7f4;
+}
+
+.eval-run-header {
+  display: grid;
+  gap: 2px;
+}
+
+.eval-run-header span,
+.eval-run details {
+  color: #607167;
+  font-size: 12px;
+}
+
+.eval-run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.eval-run-actions .active {
+  color: #1e6c3d;
+  background: #d8f0df;
+}
+
+.eval-run pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 6px 0 0;
+  white-space: pre-wrap;
 }
 
 .provider-generator-grid {

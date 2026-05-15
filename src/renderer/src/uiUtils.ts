@@ -34,6 +34,7 @@ const PERSISTED_SETTING_KEYS = [
   'inputMode',
   'ocrLanguage',
   'ocrMathMode',
+  'ocrPreprocessMode',
   'reasoningEffort',
   'shortcuts',
   'promptTemplateId',
@@ -57,6 +58,7 @@ const STRING_SETTING_OPTIONS: Partial<Record<StringSettingKey, readonly string[]
   apiMode: ['env', 'chat-completions', 'responses'],
   inputMode: ['ocr-text', 'image'],
   ocrLanguage: ['chi_sim', 'eng'],
+  ocrPreprocessMode: ['auto', 'none', 'contrast', 'binary', 'multi'],
   reasoningEffort: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   promptTemplateId: ['standard', 'concise', 'socratic', 'exam-safe', 'custom']
 };
@@ -163,6 +165,7 @@ function pickPersistableSettings(settings: TutorSettings): PersistedTutorSetting
     inputMode: settings.inputMode,
     ocrLanguage: settings.ocrLanguage,
     ocrMathMode: settings.ocrMathMode,
+    ocrPreprocessMode: settings.ocrPreprocessMode,
     reasoningEffort: settings.reasoningEffort,
     shortcuts: normalizeShortcutBindings(settings.shortcuts),
     promptTemplateId: settings.promptTemplateId,

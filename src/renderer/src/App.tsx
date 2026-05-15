@@ -8,6 +8,7 @@ import type {
   ModelOption,
   OcrPreviewResult,
   RegionBounds,
+  StudyLibraryExportFormat,
   TutorSettings,
   UpdateStatusEvent
 } from '../../shared/types';
@@ -18,6 +19,7 @@ import type {
   SettingsView,
   StudyItem,
   StudyItemPatch,
+  StudyReviewGrade,
   UiConversationTurn
 } from './uiTypes';
 import {
@@ -49,7 +51,13 @@ import {
 import { useAnnouncements } from './useAnnouncements';
 import { usePointerInteractions } from './usePointerInteractions';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
-import { loadStudyItems, saveStudyItems, updateStudyItemMetadata, upsertStudyItem } from './studyLibrary';
+import {
+  loadStudyItems,
+  saveStudyItems,
+  updateStudyItemMetadata,
+  updateStudyItemReviewResult,
+  upsertStudyItem
+} from './studyLibrary';
 import { CaptureConfirmOverlay } from './components/CaptureConfirmOverlay';
 import { DragCaptureOverlay } from './components/DragCaptureOverlay';
 import { Toolbar } from './components/Toolbar';
@@ -101,6 +109,7 @@ export function App(): JSX.Element {
   const [diagnosticError, setDiagnosticError] = useState('');
   const [isDiagnosticsRunning, setIsDiagnosticsRunning] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
+  const [studyLibraryExportStatus, setStudyLibraryExportStatus] = useState('');
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusEvent>({
     status: 'idle',
     message: '尚未检查更新。'
@@ -116,6 +125,7 @@ export function App(): JSX.Element {
   const proxyHealthRequestIdRef = useRef(0);
   const isModelCustomRef = useRef(false);
   const setupWizardAutoOpenRef = useRef(false);
+  const metadataRequestIdsRef = useRef(new Set<string>());
   useEffect(() => {
     isModelCustomRef.current = isModelCustom;
   }, [isModelCustom]);
@@ -188,6 +198,54 @@ export function App(): JSX.Element {
       })
     );
   }, [activeStudyItemId, appVersion, conversationTurns, ocrPreview, settings]);
+
+  useEffect(() => {
+    if (!activeStudyItemId || ocrPreview || isLoading || conversationTurns.length === 0 || !settings.model.trim()) {
+      return;
+    }
+
+    const existing = studyItems.find((item) => item.id === activeStudyItemId);
+
+    if (existing?.metadata || metadataRequestIdsRef.current.has(activeStudyItemId)) {
+      return;
+    }
+
+    const hasAssistantAnswer = conversationTurns.some((turn) => turn.role === 'assistant' && turn.content.trim());
+
+    if (!hasAssistantAnswer) {
+      return;
+    }
+
+    const studyItemId = activeStudyItemId;
+    const text = conversationTurns.map((turn) => `${turn.role === 'user' ? '用户' : '助手'}：${turn.content}`).join('\n\n');
+    metadataRequestIdsRef.current.add(studyItemId);
+
+    void window.studyTutor
+      .extractStudyMetadata({
+        text,
+        settings: settingsWithEffectiveProxyUrl(settings)
+      })
+      .then(({ metadata }) => {
+        setStudyItems((current) => {
+          const item = current.find((candidate) => candidate.id === studyItemId);
+
+          if (!item) {
+            return current;
+          }
+
+          const mergedTags = [...new Set([...item.tags, ...metadata.tags, ...metadata.keyPoints].filter(Boolean))];
+
+          return updateStudyItemMetadata(current, studyItemId, {
+            metadata,
+            subject: metadata.subject,
+            tags: mergedTags,
+            difficulty: metadata.difficulty,
+            mistakeReason: item.mistakeReason || metadata.mistakeTraps[0] || ''
+          });
+        });
+      })
+      .catch(() => undefined);
+  }, [activeStudyItemId, conversationTurns, isLoading, ocrPreview, settings, studyItems]);
 
   const clearSavedProxyTokenState = useCallback((message = PROXY_TOKEN_INVALID_MESSAGE): void => {
     setSettings((current) => ({ ...current, proxyToken: '' }));
@@ -1275,6 +1333,61 @@ export function App(): JSX.Element {
     setStudyItems((current) => updateStudyItemMetadata(current, id, patch));
   }, []);
 
+  const reviewStudyItem = useCallback((id: string, grade: StudyReviewGrade): void => {
+    setStudyItems((current) => updateStudyItemReviewResult(current, id, grade));
+  }, []);
+
+  const reviewCurrentStudyItem = useCallback(
+    (grade: StudyReviewGrade): void => {
+      if (!activeStudyItemId || !canExportConversation) {
+        return;
+      }
+
+      setStudyItems((current) => {
+        const items = current.some((item) => item.id === activeStudyItemId)
+          ? current
+          : upsertStudyItem(current, {
+              id: activeStudyItemId,
+              appVersion,
+              settings,
+              turns: conversationTurns
+            });
+
+        return updateStudyItemReviewResult(items, activeStudyItemId, grade);
+      });
+    },
+    [activeStudyItemId, appVersion, canExportConversation, conversationTurns, settings]
+  );
+
+  const exportStudyItems = useCallback(
+    async (format: StudyLibraryExportFormat, items: StudyItem[]): Promise<void> => {
+      if (items.length === 0) {
+        return;
+      }
+
+      setStudyLibraryExportStatus('');
+
+      try {
+        const response = await window.studyTutor.exportStudyLibrary({
+          appVersion,
+          exportedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+          format,
+          items: items.map((item) => ({
+            ...item,
+            turns: item.turns.map((turn) => ({ role: turn.role, content: turn.content }))
+          }))
+        });
+
+        if (!response.canceled) {
+          setStudyLibraryExportStatus(response.filePath ? `已导出：${response.filePath}` : '已导出学习库。');
+        }
+      } catch (caught) {
+        setStudyLibraryExportStatus(caught instanceof Error ? caught.message : String(caught));
+      }
+    },
+    [appVersion]
+  );
+
   const deleteStudyItem = useCallback((id: string): void => {
     setStudyItems((current) => current.filter((item) => item.id !== id));
     setActiveStudyItemId((current) => (current === id ? '' : current));
@@ -1534,6 +1647,7 @@ export function App(): JSX.Element {
           onEndCurrentQuestion={() => void endCurrentQuestion()}
           onRetry={retry}
           onToggleFavorite={toggleCurrentStudyItemFavorite}
+          onReviewCurrent={reviewCurrentStudyItem}
           onCopyAnswer={copyConversationMarkdown}
           onExportAnswer={() => void exportConversationMarkdown()}
           onPointerEnter={enterInteractiveSurface}
@@ -1577,8 +1691,11 @@ export function App(): JSX.Element {
           onOpenSetupWizard={openSetupWizard}
           onRestoreStudyItem={restoreStudyItem}
           onUpdateStudyItem={updateStudyItem}
+          onReviewStudyItem={reviewStudyItem}
           onDeleteStudyItem={deleteStudyItem}
           onClearStudyItems={clearStudyItems}
+          onExportStudyItems={(format, items) => void exportStudyItems(format, items)}
+          studyLibraryExportStatus={studyLibraryExportStatus}
           onOpenGuide={openGuide}
           onDragPointerDown={(event) => onFloatingPointerDown(event, 'settings')}
           onPointerEnter={enterInteractiveSurface}

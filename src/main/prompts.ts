@@ -131,3 +131,27 @@ export function buildFollowUpHistoryPrompt(
     question
   ].join('\n');
 }
+
+export function buildStudyMetadataInstructions(settings: TutorSettings): string {
+  const language = settings.language === 'zh-CN' ? '中文' : 'English';
+
+  return [
+    '你是学习记录结构化助手，只负责从题目讲解文本中提取复习信息。',
+    `请用${language}理解内容，但最终只输出 JSON。`,
+    '不要补充解释，不要使用 Markdown，不要输出代码块。',
+    '只允许输出一个 JSON 对象，字段必须是：subject, topic, questionType, difficulty, keyPoints, mistakeTraps, tags, summary。',
+    'subject 只能是 general、math、english、physics、programming。',
+    'difficulty 只能是 easy、normal、hard。',
+    'keyPoints、mistakeTraps、tags 都是字符串数组，每个数组最多 6 项。'
+  ].join('\n');
+}
+
+export function buildStudyMetadataPrompt(text: string): string {
+  return [
+    '请为下面这条学习记录提取结构化信息。',
+    '如果信息不足，请给出保守判断，不要臆造题目条件。',
+    '',
+    '学习记录：',
+    text.slice(0, 12000)
+  ].join('\n');
+}

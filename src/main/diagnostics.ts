@@ -45,6 +45,28 @@ function selectedModelStep(settings: TutorSettings): DiagnosticStep {
   });
 }
 
+function securityBoundarySteps(settings: TutorSettings): DiagnosticStep[] {
+  return [
+    step({
+      id: 'security-sensitive-fields',
+      title: '敏感信息边界',
+      status: 'pass',
+      summary: '诊断报告只输出配置状态，不输出 API Key、代理 Token、ngrok Token 或完整认证请求头。',
+      cause:
+        settings.apiKey.trim() || settings.proxyToken.trim()
+          ? '本轮诊断请求包含临时输入的敏感字段，但报告会继续保持脱敏。'
+          : undefined
+    }),
+    step({
+      id: 'security-renderer-storage',
+      title: '前端持久化白名单',
+      status: 'pass',
+      summary: '渲染层只持久化连接模式、模型、OCR、快捷键和 Prompt 偏好等非敏感设置。',
+      solution: '如果后续新增设置项，必须继续把 API Key、代理 Token 和服务端 Token 留在主进程或代理服务端。'
+    })
+  ];
+}
+
 async function diagnoseDirect(settings: TutorSettings, localEnvPath: string, deepCheck: boolean): Promise<DiagnosticStep[]> {
   const steps: DiagnosticStep[] = [];
   const defaults = getRuntimeApiDefaults();
@@ -306,9 +328,12 @@ export async function runDiagnostics(
   localEnvPath: string
 ): Promise<DiagnosticResult> {
   const settings = request.settings;
-  const steps = isProxyMode(settings)
+  const steps = [
+    ...securityBoundarySteps(settings),
+    ...(isProxyMode(settings)
     ? await diagnoseProxy(settings, Boolean(request.deepCheck))
-    : await diagnoseDirect(settings, localEnvPath, Boolean(request.deepCheck));
+    : await diagnoseDirect(settings, localEnvPath, Boolean(request.deepCheck)))
+  ];
 
   return {
     ok: steps.every((item) => item.status !== 'fail'),

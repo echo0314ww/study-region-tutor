@@ -4,10 +4,10 @@
 
 ## 当前版本
 
-- 当前版本：`1.1.3`。
+- 当前版本：`1.2.0`。
 - GitHub 仓库：`echo0314ww/study-region-tutor`。
-- 最近发布提交：`Release v1.1.3`。
-- 当前 Unreleased 改动：暂无；v1.1.3 已归档文档体系规范化、首次配置向导、代理管理面板、快捷键自定义、OCR 多候选确认、学习库/错题本、诊断深度测试、Provider 配置生成器、Prompt 模板和公告分组。
+- 最近发布提交：准备 `Release v1.2.0`。
+- 当前 Unreleased 改动：暂无；v1.2.0 已归档学习库复习队列、结构化知识点提取、学习库批量导出、模型/Prompt 评测、OCR 预处理和安全边界检查。
 
 ## 项目定位
 
@@ -23,11 +23,15 @@
 - 跨显示器框选会按显示器裁剪并合成完整 PNG。
 - 默认直接发送图片；图片接口失败时退回本地 OCR，并先展示可编辑 OCR 结果确认页。
 - OCR worker 按语言复用并在空闲后释放。
+- OCR 支持自动增强、不增强、对比度、二值化和多路增强预处理模式。
 - 本题追问使用内存会话，不重新发送原始截图。
 - 结果面板支持复制答案和导出答案，默认不包含截图或敏感配置。
+- 结果面板支持对当前题标记复习反馈，学习库会记录复习次数、答对/答错次数、下次复习时间、难度和易错原因。
 - 设置页支持一键诊断、整体功能向导、本版本新增向导和历史版本向导回顾。
-- 设置页支持首次配置向导、代理管理面板、快捷键自定义、学习库/错题本、Provider 配置生成器和 Prompt 模板。
+- 设置页支持首次配置向导、代理管理面板、快捷键自定义、学习库/错题本、Provider 配置生成器、Prompt 模板和模型/Prompt 评测。
+- 学习库支持今日待复习、错题筛选、结构化知识点/题型/难度/关键点/易错点归类，以及 Markdown、Anki CSV、Obsidian 批量导出。
 - 一键诊断支持快速诊断和会实际请求文本讲解接口的深度测试。
+- 一键诊断和发布流程包含安全边界检查；`npm run security:check` 会检查持久化白名单、BrowserWindow 安全选项和导出隐私提示。
 - 非敏感设置会保存到渲染层版本化 `localStorage`；API Key 和代理 Token 不进入普通 `localStorage`。
 - 支持本地直连和代理服务。
 - 支持 OpenAI-compatible、Gemini 原生和 Anthropic 原生 provider。
@@ -85,6 +89,7 @@ npm run typecheck
 npm run lint
 npm run test
 npm run build
+npm run security:check
 node --check server/proxy-server.mjs
 node --check server/ngrok-dev.mjs
 node --check scripts/sync-release-notes.mjs

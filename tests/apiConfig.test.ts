@@ -23,6 +23,7 @@ const baseSettings: TutorSettings = {
   inputMode: 'ocr-text',
   ocrLanguage: 'chi_sim',
   ocrMathMode: true,
+  ocrPreprocessMode: 'auto',
   reasoningEffort: 'off'
 };
 

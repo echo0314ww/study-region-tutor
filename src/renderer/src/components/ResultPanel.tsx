@@ -2,7 +2,7 @@ import { AlertCircle, BookOpen, Check, Loader2, RefreshCw, X } from 'lucide-reac
 import type { PointerEvent } from 'react';
 import { useMemo } from 'react';
 import type { OcrPreviewResult, RegionBounds } from '../../../shared/types';
-import type { DragMode, UiConversationTurn } from '../uiTypes';
+import type { DragMode, StudyReviewGrade, UiConversationTurn } from '../uiTypes';
 import { HANDLE_NAMES } from '../constants';
 import { AnswerRenderer } from '../AnswerRenderer';
 import { OcrPreviewForm } from './OcrPreviewForm';
@@ -37,6 +37,7 @@ export interface ResultPanelProps {
   onEndCurrentQuestion: () => void;
   onRetry: () => void;
   onToggleFavorite: () => void;
+  onReviewCurrent: (grade: StudyReviewGrade) => void;
   onCopyAnswer: () => void;
   onExportAnswer: () => void;
   onPointerEnter: () => void;
@@ -71,6 +72,7 @@ export function ResultPanel({
   onEndCurrentQuestion,
   onRetry,
   onToggleFavorite,
+  onReviewCurrent,
   onCopyAnswer,
   onExportAnswer,
   onPointerEnter,
@@ -177,6 +179,7 @@ export function ResultPanel({
           exportStatus={exportStatus}
           isCurrentFavorite={isCurrentFavorite}
           onToggleFavorite={onToggleFavorite}
+          onReviewCurrent={onReviewCurrent}
           onCopyAnswer={onCopyAnswer}
           onExportAnswer={onExportAnswer}
         />

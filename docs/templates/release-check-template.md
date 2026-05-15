@@ -22,6 +22,7 @@
 - [ ] `npm run lint`
 - [ ] `npm run test`
 - [ ] `npm run build`
+- [ ] `npm run security:check`
 - [ ] `node --check server/proxy-server.mjs`
 - [ ] `node --check server/ngrok-dev.mjs`
 - [ ] `node --check scripts/sync-release-notes.mjs`

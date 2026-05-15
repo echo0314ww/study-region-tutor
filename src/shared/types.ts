@@ -6,10 +6,16 @@ export type ApiConnectionMode = 'direct' | 'proxy';
 export type InputMode = 'ocr-text' | 'image';
 export type OcrPreviewReason = 'ocr-mode' | 'image-fallback';
 export type OcrLanguage = 'chi_sim' | 'eng';
+export type OcrPreprocessMode = 'auto' | 'none' | 'contrast' | 'binary' | 'multi';
 export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type ReasoningEffortSetting = ReasoningEffort | 'off';
 export type SessionRole = 'user' | 'assistant';
 export type DiagnosticStatus = 'pass' | 'warn' | 'fail';
+export type StudySubject = 'general' | 'math' | 'english' | 'physics' | 'programming';
+export type StudyItemStatus = 'new' | 'reviewing' | 'mastered';
+export type StudyDifficulty = 'easy' | 'normal' | 'hard';
+export type StudyReviewGrade = 'again' | 'hard' | 'good' | 'easy';
+export type StudyLibraryExportFormat = 'markdown' | 'anki-csv' | 'obsidian';
 export type ShortcutAction =
   | 'start-capture'
   | 'cancel-capture'
@@ -46,6 +52,7 @@ export interface TutorSettings {
   inputMode: InputMode;
   ocrLanguage: OcrLanguage;
   ocrMathMode: boolean;
+  ocrPreprocessMode: OcrPreprocessMode;
   reasoningEffort: ReasoningEffortSetting;
   shortcuts?: ShortcutBinding[];
   promptTemplateId?: PromptTemplateId;
@@ -245,6 +252,27 @@ export interface RunDiagnosticsRequest {
   deepCheck?: boolean;
 }
 
+export interface StudyMetadata {
+  subject: StudySubject;
+  topic: string;
+  questionType: string;
+  difficulty: StudyDifficulty;
+  keyPoints: string[];
+  mistakeTraps: string[];
+  tags: string[];
+  summary: string;
+  extractedAt: string;
+}
+
+export interface ExtractStudyMetadataRequest {
+  text: string;
+  settings: TutorSettings;
+}
+
+export interface ExtractStudyMetadataResult {
+  metadata: StudyMetadata;
+}
+
 export interface ExportConversationRequest {
   appVersion: string;
   exportedAt: string;
@@ -258,6 +286,70 @@ export interface ExportConversationRequest {
 export interface ExportConversationResult {
   canceled: boolean;
   filePath?: string;
+}
+
+export interface StudyLibraryExportItem {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  lastReviewedAt: string;
+  nextReviewAt: string;
+  appVersion: string;
+  model: string;
+  providerId: string;
+  inputMode: InputMode;
+  language: TutorLanguage;
+  subject: StudySubject;
+  tags: string[];
+  favorite: boolean;
+  status: StudyItemStatus;
+  reviewCount: number;
+  correctCount: number;
+  wrongCount: number;
+  difficulty: StudyDifficulty;
+  mistakeReason: string;
+  metadata?: StudyMetadata;
+  turns: QuestionSessionTurn[];
+}
+
+export interface ExportStudyLibraryRequest {
+  appVersion: string;
+  exportedAt: string;
+  format: StudyLibraryExportFormat;
+  items: StudyLibraryExportItem[];
+}
+
+export interface PromptEvalVariant {
+  id: string;
+  providerId: string;
+  model: string;
+  promptTemplateId: PromptTemplateId;
+  customPromptInstruction?: string;
+}
+
+export interface PromptEvalRun {
+  id: string;
+  createdAt: string;
+  providerId: string;
+  model: string;
+  promptTemplateId: PromptTemplateId;
+  latencyMs: number;
+  outputLength: number;
+  success: boolean;
+  output: string;
+  error?: string;
+  rating?: 1 | 2 | 3 | 4 | 5;
+}
+
+export interface RunPromptEvalRequest {
+  inputText: string;
+  settings: TutorSettings;
+  variants: PromptEvalVariant[];
+}
+
+export interface RunPromptEvalResult {
+  runs: PromptEvalRun[];
 }
 
 export interface DisplayLike {

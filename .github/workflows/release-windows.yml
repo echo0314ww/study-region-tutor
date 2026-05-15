@@ -38,6 +38,9 @@ jobs:
       - name: Test
         run: npm run test
 
+      - name: Security boundary check
+        run: npm run security:check
+
       - name: Build and publish Windows release
         run: npm run publish:win
         env:

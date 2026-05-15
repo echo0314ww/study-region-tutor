@@ -1,4 +1,5 @@
-import { Clipboard, Download, Star, X } from 'lucide-react';
+import { AlertTriangle, Clipboard, Download, Star, ThumbsUp, X } from 'lucide-react';
+import type { StudyReviewGrade } from '../uiTypes';
 
 export interface FollowUpBarProps {
   followUpText: string;
@@ -11,6 +12,7 @@ export interface FollowUpBarProps {
   onNextQuestion: () => void;
   onEndQuestion: () => void;
   onToggleFavorite: () => void;
+  onReviewCurrent: (grade: StudyReviewGrade) => void;
   onCopyAnswer: () => void;
   onExportAnswer: () => void;
 }
@@ -26,6 +28,7 @@ export function FollowUpBar({
   onNextQuestion,
   onEndQuestion,
   onToggleFavorite,
+  onReviewCurrent,
   onCopyAnswer,
   onExportAnswer
 }: FollowUpBarProps): JSX.Element {
@@ -60,6 +63,17 @@ export function FollowUpBar({
         >
           <Star size={16} />
           {isCurrentFavorite ? '已收藏' : '收藏'}
+        </button>
+        <button className="secondary-button" type="button" onClick={() => onReviewCurrent('again')} disabled={isLoading || !canExport}>
+          <AlertTriangle size={16} />
+          答错了
+        </button>
+        <button className="secondary-button" type="button" onClick={() => onReviewCurrent('hard')} disabled={isLoading || !canExport}>
+          有点忘
+        </button>
+        <button className="secondary-button" type="button" onClick={() => onReviewCurrent('good')} disabled={isLoading || !canExport}>
+          <ThumbsUp size={16} />
+          答对了
         </button>
         <button className="secondary-button" type="button" onClick={onCopyAnswer} disabled={isLoading || !canExport}>
           <Clipboard size={16} />

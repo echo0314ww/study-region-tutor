@@ -1,4 +1,13 @@
-import type { QuestionSessionTurn, RegionBounds, TutorSettings } from '../../shared/types';
+import type {
+  QuestionSessionTurn,
+  RegionBounds,
+  StudyDifficulty,
+  StudyItemStatus,
+  StudyMetadata,
+  StudyReviewGrade,
+  StudySubject,
+  TutorSettings
+} from '../../shared/types';
 
 export type DragMode = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
@@ -37,8 +46,7 @@ export type UiConversationTurn = QuestionSessionTurn & {
   id: string;
 };
 
-export type StudySubject = 'general' | 'math' | 'english' | 'physics' | 'programming';
-export type StudyItemStatus = 'new' | 'reviewing' | 'mastered';
+export type { StudyDifficulty, StudyItemStatus, StudyMetadata, StudyReviewGrade, StudySubject };
 
 export type ProxyHealthStatus = 'idle' | 'checking' | 'success' | 'error';
 export type SettingsView =
@@ -48,7 +56,8 @@ export type SettingsView =
   | 'setupGuide'
   | 'history'
   | 'providerGenerator'
-  | 'promptTemplates';
+  | 'promptTemplates'
+  | 'eval';
 export type GuideKind = 'product' | 'release' | 'history';
 
 export interface GuideStep {
@@ -79,6 +88,7 @@ export interface StudyItem {
   createdAt: string;
   updatedAt: string;
   lastReviewedAt: string;
+  nextReviewAt: string;
   appVersion: string;
   model: string;
   providerId: string;
@@ -88,11 +98,32 @@ export interface StudyItem {
   tags: string[];
   favorite: boolean;
   status: StudyItemStatus;
+  reviewCount: number;
+  correctCount: number;
+  wrongCount: number;
+  difficulty: StudyDifficulty;
+  mistakeReason: string;
+  metadata?: StudyMetadata;
   turns: UiConversationTurn[];
 }
 
 export type StudyItemPatch = Partial<
-  Pick<StudyItem, 'title' | 'subject' | 'tags' | 'favorite' | 'status' | 'lastReviewedAt'>
+  Pick<
+    StudyItem,
+    | 'title'
+    | 'subject'
+    | 'tags'
+    | 'favorite'
+    | 'status'
+    | 'lastReviewedAt'
+    | 'nextReviewAt'
+    | 'reviewCount'
+    | 'correctCount'
+    | 'wrongCount'
+    | 'difficulty'
+    | 'mistakeReason'
+    | 'metadata'
+  >
 >;
 
 export interface LocalHistoryItem {

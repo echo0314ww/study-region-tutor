@@ -22,7 +22,9 @@ import type {
   InputMode,
   ModelOption,
   OcrLanguage,
+  OcrPreprocessMode,
   ReasoningEffortSetting,
+  StudyLibraryExportFormat,
   TutorLanguage,
   TutorSettings,
   UpdateStatusEvent
@@ -33,7 +35,8 @@ import type {
   ProxyHealthStatus,
   SettingsView,
   StudyItem,
-  StudyItemPatch
+  StudyItemPatch,
+  StudyReviewGrade
 } from '../uiTypes';
 import { BUILT_IN_PROXY_URL, CUSTOM_MODEL_VALUE, DEFAULT_SHORTCUTS, MODEL_PLACEHOLDER_VALUE } from '../constants';
 import { normalizeReasoningEffort, reasoningHelpText, reasoningOptionsFor } from '../../../shared/reasoning';
@@ -43,6 +46,7 @@ import { ProxyAdminPanel } from './ProxyAdminPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { ProviderConfigGenerator } from './ProviderConfigGenerator';
 import { PromptTemplatePanel } from './PromptTemplatePanel';
+import { EvalPanel } from './EvalPanel';
 
 export interface SettingsPanelProps {
   settingsPanelRef: RefObject<HTMLElement | null>;
@@ -79,8 +83,11 @@ export interface SettingsPanelProps {
   onOpenSetupWizard: () => void;
   onRestoreStudyItem: (item: StudyItem) => void;
   onUpdateStudyItem: (id: string, patch: StudyItemPatch) => void;
+  onReviewStudyItem: (id: string, grade: StudyReviewGrade) => void;
   onDeleteStudyItem: (id: string) => void;
   onClearStudyItems: () => void;
+  onExportStudyItems: (format: StudyLibraryExportFormat, items: StudyItem[]) => void;
+  studyLibraryExportStatus: string;
   onOpenGuide: (kind: GuideKind) => void;
   onDragPointerDown: (event: PointerEvent) => void;
   onPointerEnter: () => void;
@@ -122,8 +129,11 @@ export function SettingsPanel({
   onOpenSetupWizard,
   onRestoreStudyItem,
   onUpdateStudyItem,
+  onReviewStudyItem,
   onDeleteStudyItem,
   onClearStudyItems,
+  onExportStudyItems,
+  studyLibraryExportStatus,
   onOpenGuide,
   onDragPointerDown,
   onPointerEnter,
@@ -153,18 +163,17 @@ export function SettingsPanel({
   const reasoningSelectValue = normalizeReasoningEffort(settings.reasoningEffort, currentProviderType, settings.model);
   const reasoningStatusText = reasoningHelpText(currentProviderType, settings.model);
   const activeShortcuts = shortcutBindings(settings);
-  const settingsTitle =
-    settingsView === 'proxyAdvanced'
-      ? '高级设置'
-      : settingsView === 'proxyAdmin'
-        ? '代理管理'
-        : settingsView === 'history'
-          ? '学习库'
-          : settingsView === 'providerGenerator'
-            ? 'Provider 配置生成器'
-            : settingsView === 'promptTemplates'
-              ? 'Prompt 模板'
-        : '设置';
+  const settingsTitleByView: Record<SettingsView, string> = {
+    normal: '设置',
+    proxyAdvanced: '高级设置',
+    proxyAdmin: '代理管理',
+    setupGuide: '设置',
+    history: '学习库',
+    providerGenerator: 'Provider 配置生成器',
+    promptTemplates: 'Prompt 模板',
+    eval: '模型评测'
+  };
+  const settingsTitle = settingsTitleByView[settingsView];
 
   const modelIds = useMemo(() => new Set(modelOptions.map((model) => model.id)), [modelOptions]);
   const modelSelectValue = isModelCustom
@@ -350,13 +359,23 @@ export function SettingsPanel({
           studyItems={studyItems}
           onRestore={onRestoreStudyItem}
           onUpdate={onUpdateStudyItem}
+          onReview={onReviewStudyItem}
           onDelete={onDeleteStudyItem}
           onClear={onClearStudyItems}
+          onExport={onExportStudyItems}
+          exportStatus={studyLibraryExportStatus}
         />
       ) : settingsView === 'providerGenerator' ? (
         <ProviderConfigGenerator onCopy={onCopyDiagnosticReport} />
       ) : settingsView === 'promptTemplates' ? (
         <PromptTemplatePanel settings={settings} onSettingsChange={onSettingsChange} />
+      ) : settingsView === 'eval' ? (
+        <EvalPanel
+          settings={settings}
+          apiProviders={apiProviders}
+          modelOptions={modelOptions}
+          onCopy={onCopyDiagnosticReport}
+        />
       ) : (
         <>
           <div className="settings-guide-row">
@@ -379,6 +398,10 @@ export function SettingsPanel({
             <button className="secondary-button" type="button" onClick={() => onSettingsViewChange('promptTemplates')}>
               <MessageSquareText size={16} />
               Prompt 模板
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onSettingsViewChange('eval')}>
+              <MessageSquareText size={16} />
+              模型评测
             </button>
             <button className="secondary-button" type="button" onClick={() => onOpenGuide('product')}>
               整体功能向导
@@ -720,6 +743,25 @@ export function SettingsPanel({
               onChange={(event) => onSettingsChange((current) => ({ ...current, ocrMathMode: event.target.checked }))}
             />
             数学公式增强
+          </label>
+          <label>
+            OCR 预处理
+            <select
+              value={settings.ocrPreprocessMode}
+              onChange={(event) =>
+                onSettingsChange((current) => ({
+                  ...current,
+                  ocrPreprocessMode: event.target.value as OcrPreprocessMode
+                }))
+              }
+              disabled={settings.inputMode !== 'ocr-text'}
+            >
+              <option value="auto">自动增强</option>
+              <option value="none">不增强</option>
+              <option value="contrast">只增强对比度</option>
+              <option value="binary">只二值化</option>
+              <option value="multi">多路增强</option>
+            </select>
           </label>
           <label>
             语言

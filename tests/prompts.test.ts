@@ -17,6 +17,7 @@ describe('buildTutorInstructions', () => {
       inputMode: 'ocr-text',
       ocrLanguage: 'chi_sim',
       ocrMathMode: true,
+      ocrPreprocessMode: 'auto',
       reasoningEffort: 'off'
     });
 
@@ -40,6 +41,7 @@ describe('buildTutorInstructions', () => {
       inputMode: 'ocr-text',
       ocrLanguage: 'chi_sim',
       ocrMathMode: true,
+      ocrPreprocessMode: 'auto',
       reasoningEffort: 'off'
     });
 

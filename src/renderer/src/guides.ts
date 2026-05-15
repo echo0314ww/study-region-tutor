@@ -7,6 +7,32 @@ interface ReleaseGuideContent {
 }
 
 const releaseGuidesByVersion: Record<string, ReleaseGuideContent> = {
+  '1.2.0': {
+    title: 'v1.2.0 新增功能',
+    subtitle: '复习队列、知识点提取、批量导出、模型评测和 OCR 预处理。',
+    steps: [
+      {
+        title: '学习库可以安排复习',
+        body: '学习库新增今日待复习、错题筛选、复习次数、答对/答错次数、下次复习时间、难度和易错原因。',
+        action: '在结果面板或学习库里标记“答错了”“有点忘”“答对了”“很熟练”，应用会自动安排下次复习。'
+      },
+      {
+        title: '题目会自动归类',
+        body: '讲解完成后，应用会异步提取学科、知识点、题型、难度、关键点、易错点和标签，便于后续搜索和整理。',
+        action: '提取失败不会影响当前讲解；学习库仍会保留原有题目文本和对话记录。'
+      },
+      {
+        title: '学习记录更容易带走',
+        body: '学习库可以把当前筛选结果批量导出为 Markdown、Anki CSV 或 Obsidian Markdown。',
+        action: '导出内容只包含文字记录、复习状态和结构化学习信息，不包含截图、API Key 或代理 Token。'
+      },
+      {
+        title: '模型和 OCR 更可调',
+        body: '设置页新增模型评测，可用同一道题比较不同模型和 Prompt 模板；OCR 新增自动增强、对比度、二值化和多路增强模式。',
+        action: '发布前检查新增安全边界校验，帮助确认敏感配置不会进入普通存储、诊断报告或导出文件。'
+      }
+    ]
+  },
   '1.1.3': {
     title: 'v1.1.3 新增功能',
     subtitle: '首次配置、快捷键、学习库、OCR 候选和文档体系更新。',
@@ -352,8 +378,8 @@ export function productGuide(version: string): GuideDefinition {
       },
       {
         title: '沉淀学习记录',
-        body: '结果窗口底部支持收藏当前题、复制答案或导出答案；完成讲解后也会自动保存到学习库，便于后续搜索、复习和标记掌握状态。',
-        action: '学习库和导出内容默认不包含截图、API Key、代理 Token 或代理地址。'
+        body: '结果窗口底部支持收藏当前题、标记复习结果、复制答案或导出答案；完成讲解后也会自动保存到学习库，便于后续搜索、复习和标记掌握状态。',
+        action: '学习库支持待复习筛选、错题筛选、批量 Markdown/Anki/Obsidian 导出，导出内容默认不包含截图、API Key、代理 Token 或代理地址。'
       }
     ]
   };
