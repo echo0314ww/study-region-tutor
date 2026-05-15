@@ -5,6 +5,7 @@ export interface OcrPreviewFormProps {
   error: string;
   stoppedMessage: string;
   onTextChange: (text: string) => void;
+  onApplyCandidate: (candidateId: string) => void;
   onSend: () => void;
   onReselect: () => void;
   onCancel: () => void;
@@ -15,6 +16,7 @@ export function OcrPreviewForm({
   error,
   stoppedMessage,
   onTextChange,
+  onApplyCandidate,
   onSend,
   onReselect,
   onCancel
@@ -40,6 +42,22 @@ export function OcrPreviewForm({
       </div>
       {ocrPreview.fallbackReason && (
         <div className="ocr-preview-note">图片接口失败原因：{ocrPreview.fallbackReason}</div>
+      )}
+      {ocrPreview.candidates && ocrPreview.candidates.length > 1 && (
+        <div className="ocr-candidate-list" aria-label="OCR 候选结果">
+          {ocrPreview.candidates.map((candidate, index) => (
+            <button
+              className={ocrPreview.selectedCandidateId === candidate.id ? 'active' : ''}
+              key={candidate.id}
+              type="button"
+              onClick={() => onApplyCandidate(candidate.id)}
+              title={candidate.text}
+            >
+              <strong>候选 {index + 1}</strong>
+              <span>{candidate.label} · {candidate.language} · {candidate.confidence}</span>
+            </button>
+          ))}
+        </div>
       )}
       {error && <div className="ocr-preview-note danger">{error}</div>}
       {stoppedMessage && <div className="ocr-preview-note">{stoppedMessage}</div>}

@@ -135,6 +135,10 @@ export async function checkProxyHealth(sourceUrl?: string): Promise<ProxyHealthR
       tokenCount?: number;
       rateLimitEnabled?: boolean;
       providerCount?: number;
+      serviceUrls?: ProxyHealthResult['serviceUrls'];
+      announcementEnabled?: boolean;
+      announcementCount?: number;
+      loadedAt?: string;
     }>(text);
 
     if (!response.ok || !envelope.ok) {
@@ -147,7 +151,11 @@ export async function checkProxyHealth(sourceUrl?: string): Promise<ProxyHealthR
       message: '代理服务连接成功。',
       tokenCount: envelope.data?.tokenCount,
       rateLimitEnabled: envelope.data?.rateLimitEnabled,
-      providerCount: envelope.data?.providerCount
+      providerCount: envelope.data?.providerCount,
+      serviceUrls: envelope.data?.serviceUrls,
+      announcementEnabled: envelope.data?.announcementEnabled,
+      announcementCount: envelope.data?.announcementCount,
+      loadedAt: envelope.data?.loadedAt
     };
   } catch (error) {
     return {

@@ -16,6 +16,8 @@ Study Region Tutor 是 Electron + React + TypeScript 桌面应用，用于学习
 - `announcements/`：版本更新公告和私人公告数据。
 - `tests/`：Vitest 单元测试。
 - `docs/`：架构说明、发布清单和实施记录。
+- `docs/decisions/`：长期架构、发布、安全和流程决策记录。
+- `docs/templates/`：实施记录、发布检查、ADR 和用户可见变化模板。
 - `.github/workflows/`：GitHub Actions 工作流，负责 Windows 发布和 Release Notes 同步。
 - `.editorconfig` / `.gitattributes`：约束编辑器格式和 Git 换行符归一化。
 
@@ -92,13 +94,21 @@ Windows 正式发布通过 GitHub Actions 完成，不在本机手动发布 GitH
 
 ## 文档地图
 
-- `README.md`：运行、配置、代理、ngrok、公告、验证和发布说明。
+- `docs/START_HERE.md`：新账号、新对话或新 Codex 会话接手项目时的唯一入口。
+- `README.md`：快速使用、基础配置、验证和文档入口。
+- `docs/documentation-policy.md`：文档更新矩阵、版本材料分工和文档校验规则。
 - `CHANGELOG.md`：开发者视角的版本变化。
 - `RELEASE_NOTES.md`：普通用户可读的版本说明，会同步到 GitHub Releases。
 - `PROJECT_CONTEXT.md`：Codex 或维护者在新对话中恢复上下文。
 - `docs/codex-handoff.md`：新账号、新对话或新 Codex 会话接手项目时的启动顺序和协作规范。
 - `docs/architecture.md`：当前架构边界和模块职责。
+- `docs/release.md`：正式发布流程和发布后本地产物同步要求。
 - `docs/release-checklist.md`：功能完成和发布前检查清单。
+- `docs/proxy.md`：代理服务、ngrok、Token、限流和排障。
+- `docs/provider-config.md`：第三方 API provider 协议和配置示例。
+- `docs/announcements.md`：公告文件格式、版本公告和客户端展示规则。
 - `docs/proxy-config.example.env`：代理服务、多 Token、限流和多协议 API 服务商的配置模板。
 - `docs/dev-log/YYYY-MM-DD.md`：重要实施过程记录。
+- `docs/decisions/`：架构决策记录。
+- `docs/templates/`：常用文档模板。
 - `announcements/releases.json`：可推送给客户端的版本更新公告。

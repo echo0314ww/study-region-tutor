@@ -1,14 +1,16 @@
-import { Clipboard, Download, X } from 'lucide-react';
+import { Clipboard, Download, Star, X } from 'lucide-react';
 
 export interface FollowUpBarProps {
   followUpText: string;
   isLoading: boolean;
   canExport: boolean;
   exportStatus: string;
+  isCurrentFavorite: boolean;
   onTextChange: (text: string) => void;
   onSend: () => void;
   onNextQuestion: () => void;
   onEndQuestion: () => void;
+  onToggleFavorite: () => void;
   onCopyAnswer: () => void;
   onExportAnswer: () => void;
 }
@@ -18,10 +20,12 @@ export function FollowUpBar({
   isLoading,
   canExport,
   exportStatus,
+  isCurrentFavorite,
   onTextChange,
   onSend,
   onNextQuestion,
   onEndQuestion,
+  onToggleFavorite,
   onCopyAnswer,
   onExportAnswer
 }: FollowUpBarProps): JSX.Element {
@@ -47,6 +51,15 @@ export function FollowUpBar({
         </button>
         <button className="secondary-button" type="button" onClick={onNextQuestion} disabled={isLoading}>
           截图下一题
+        </button>
+        <button
+          className={`secondary-button ${isCurrentFavorite ? 'active' : ''}`}
+          type="button"
+          onClick={onToggleFavorite}
+          disabled={isLoading || !canExport}
+        >
+          <Star size={16} />
+          {isCurrentFavorite ? '已收藏' : '收藏'}
         </button>
         <button className="secondary-button" type="button" onClick={onCopyAnswer} disabled={isLoading || !canExport}>
           <Clipboard size={16} />

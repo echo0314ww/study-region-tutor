@@ -440,7 +440,8 @@ async function createOcrPreviewFromDataUrl(
   let latestProcessLog = emitProgress(
     reason === 'image-fallback' ? '正在对同一张截图执行本地 OCR 兜底。' : '正在对截图执行本地 OCR。'
   );
-  const recognizedText = await recognizeTextFromDataUrl(dataUrl, settings, signal);
+  const ocrResult = await recognizeTextFromDataUrl(dataUrl, settings, signal);
+  const recognizedText = ocrResult.recognizedText;
   throwIfAborted(signal);
   latestProcessLog = emitProgress(`本地 OCR 已完成，OCR 结果长度：${recognizedText.length} 个字符。`);
   latestProcessLog = emitProgress('已暂停发送第三方文本接口，等待你检查 OCR 识别结果。');
@@ -451,6 +452,8 @@ async function createOcrPreviewFromDataUrl(
     processLog: latestProcessLog,
     sourceMode,
     reason,
+    candidates: ocrResult.candidates,
+    selectedCandidateId: ocrResult.candidates[0]?.id,
     ...(fallbackReason ? { fallbackReason } : {})
   };
 }

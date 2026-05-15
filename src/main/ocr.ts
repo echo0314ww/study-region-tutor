@@ -1,14 +1,7 @@
 import { PNG } from 'pngjs';
 import Tesseract from 'tesseract.js';
-import type { OcrLanguage, TutorSettings } from '../shared/types';
+import type { OcrCandidate, OcrLanguage, OcrRecognitionResult, TutorSettings } from '../shared/types';
 import { abortPromise, isOperationCanceled, throwIfAborted } from './cancel';
-
-interface OcrCandidate {
-  label: string;
-  language: OcrLanguage;
-  confidence: number;
-  text: string;
-}
 
 type OcrWorker = Awaited<ReturnType<typeof Tesseract.createWorker>>;
 
@@ -279,6 +272,7 @@ async function recognizeCandidate(
     console.log(`[ocr] recognized ${label}/${language} in ${nowMs() - startedAt}ms`);
 
     return {
+      id: '',
       label,
       language,
       confidence: Math.round(result.data.confidence),
@@ -350,7 +344,7 @@ export async function recognizeTextFromDataUrl(
   dataUrl: string,
   settings: TutorSettings,
   signal?: AbortSignal
-): Promise<string> {
+): Promise<OcrRecognitionResult> {
   try {
     throwIfAborted(signal);
     const imageBuffer = bufferFromDataUrl(dataUrl);
@@ -399,7 +393,15 @@ export async function recognizeTextFromDataUrl(
       }
     }
 
-    return formatCandidates(uniqueCandidates(candidates));
+    const unique = uniqueCandidates(candidates).map((candidate, index) => ({
+      ...candidate,
+      id: `ocr-candidate-${index + 1}`
+    }));
+
+    return {
+      recognizedText: formatCandidates(unique),
+      candidates: unique
+    };
   } catch (error) {
     if (isOperationCanceled(error)) {
       throw error;

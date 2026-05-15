@@ -1,5 +1,33 @@
 import type { QuestionSessionTurn, TutorSettings } from '../shared/types';
 
+function promptTemplateGuidance(settings: TutorSettings): string[] {
+  const guidance: string[] = [];
+
+  switch (settings.promptTemplateId || 'standard') {
+    case 'concise':
+      guidance.push('用户选择了“简洁讲解”模板：减少重复铺垫，优先给出关键方法、必要步骤和结论。');
+      break;
+    case 'socratic':
+      guidance.push('用户选择了“启发式讲解”模板：多用引导问题、检查点和可验证的小步骤，帮助用户自己推出来。');
+      break;
+    case 'exam-safe':
+      guidance.push('用户选择了“考试边界”模板：更严格避免直接代答，优先解释概念、方法、易错点和学习建议。');
+      break;
+    case 'custom':
+      guidance.push('用户选择了“自定义补充”模板：在不突破学习辅导边界的前提下，优先遵循用户的补充输出偏好。');
+      break;
+    case 'standard':
+    default:
+      break;
+  }
+
+  if (settings.customPromptInstruction?.trim()) {
+    guidance.push(`用户补充输出偏好：${settings.customPromptInstruction.trim()}`);
+  }
+
+  return guidance;
+}
+
 export function buildTutorInstructions(settings: TutorSettings): string {
   const language = settings.language === 'zh-CN' ? '中文' : 'English';
   const finalResultGuidance = settings.reasoningOnly
@@ -13,6 +41,7 @@ export function buildTutorInstructions(settings: TutorSettings): string {
     finalResultGuidance,
     '如果内容看起来来自正在进行的正式考试、竞赛、测验或受限制平台，请提示用户遵守规则，不要直接代答或给最终答案，只提供概念讲解和学习建议。',
     '请把回答分成：题目识别、题型判断、思路、步骤、关键概念、结果或学习建议。',
+    ...promptTemplateGuidance(settings),
     '普通解释使用自然语言；凡是数学公式、计算链、方程、区间、最值或最终结果，必须直接写成标准 LaTeX，并用 \\(...\\) 或 \\[...\\] 包起来。分式用 \\frac{}{}，根号用 \\sqrt{}，上下标用 ^ 和 _，三角形面积可写 S_{\\triangle MON}。',
     '能单独成行的公式、推导链和最终答案请使用 \\[...\\] 块级公式，说明句和公式分成两行；短变量或点坐标可放在自然语言行内。每个公式只写一遍，不要先写扁平文本再补 LaTeX。不要输出“补充 LaTeX:”或“LaTeX:”标签，也不要输出 2√3、8√3/2、x²/16 这类扁平公式文本。'
   ].join('\n');
@@ -26,6 +55,7 @@ export function buildTutorUserPrompt(settings: TutorSettings): string {
     settings.reasoningOnly
       ? '请只讲解思路和关键概念，避免直接给出最终答案。'
       : '请给出可学习的分步骤讲解，必要时包含最终结果。',
+    ...promptTemplateGuidance(settings),
     '涉及公式、方程、区间、最值、分式、根号或上下标时，请直接使用标准 LaTeX 表达并用 \\(...\\) 或 \\[...\\] 包起来；能独占一行的公式请用 \\[...\\]。同一个公式只写一遍，不要再写扁平公式文本或“LaTeX:”标签。'
   ].join('\n');
 }
@@ -42,6 +72,7 @@ export function buildTutorTextPrompt(recognizedText: string, settings: TutorSett
     settings.reasoningOnly
       ? '用户开启了“只讲思路”，请只讲解思路和关键概念，避免直接给出最终答案。'
       : '请给出可学习的分步骤讲解，必要时包含最终结果。',
+    ...promptTemplateGuidance(settings),
     '如果 OCR 文本不足以确定题意，请明确指出不确定处，并给出可继续学习的方向。',
     '',
     'OCR 识别文本：',
@@ -57,6 +88,7 @@ export function buildFollowUpQuestionPrompt(question: string, settings: TutorSet
     settings.reasoningOnly
       ? '用户仍然开启“只讲思路”，请继续只讲方法、概念和下一步思路。'
       : '请结合前文题目和讲解，直接回答用户的新疑问，必要时补充步骤和结果。',
+    ...promptTemplateGuidance(settings),
     '如果这个追问涉及正式考试、竞赛、测验或受限制平台，请继续遵守学习辅导边界，不要直接代答。',
     '如果回答里出现新的分式、根号、上下标或复杂公式，请直接写成标准 LaTeX，并用 \\(...\\) 或 \\[...\\] 包起来；长公式单独使用 \\[...\\]，同一个公式只写一遍，不要输出“LaTeX:”标签或扁平公式文本。',
     '',
@@ -85,6 +117,7 @@ export function buildFollowUpHistoryPrompt(
     settings.reasoningOnly
       ? '用户开启了“只讲思路”，请继续避免直接给最终答案。'
       : '请给出清晰的学习性解释，必要时补充步骤、公式和结果。',
+    ...promptTemplateGuidance(settings),
     '如果当前题目看起来来自正式考试、竞赛、测验或受限制平台，请只提供概念讲解和学习建议。',
     '如果继续讲解中出现新的分式、根号、上下标或复杂公式，请直接写成标准 LaTeX，并用 \\(...\\) 或 \\[...\\] 包起来；长公式单独使用 \\[...\\]，同一个公式只写一遍，不要输出“LaTeX:”标签或扁平公式文本。',
     '',

@@ -1312,7 +1312,8 @@ function normalizeAnnouncement(raw) {
     title,
     content,
     level: normalizeAnnouncementLevel(raw.level),
-    publishedAt: String(raw.publishedAt || new Date().toISOString()).trim()
+    publishedAt: String(raw.publishedAt || new Date().toISOString()).trim(),
+    category: String(raw.category || '').trim() || undefined
   };
 }
 

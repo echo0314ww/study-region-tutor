@@ -10,11 +10,26 @@ export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 
 export type ReasoningEffortSetting = ReasoningEffort | 'off';
 export type SessionRole = 'user' | 'assistant';
 export type DiagnosticStatus = 'pass' | 'warn' | 'fail';
+export type ShortcutAction =
+  | 'start-capture'
+  | 'cancel-capture'
+  | 'confirm-capture'
+  | 'toggle-result'
+  | 'open-settings'
+  | 'open-announcements'
+  | 'finish-question';
+export type PromptTemplateId = 'standard' | 'concise' | 'socratic' | 'exam-safe' | 'custom';
 export interface RegionBounds {
   x: number;
   y: number;
   width: number;
   height: number;
+}
+
+export interface ShortcutBinding {
+  action: ShortcutAction;
+  key: string;
+  enabled: boolean;
 }
 
 export interface TutorSettings {
@@ -32,6 +47,9 @@ export interface TutorSettings {
   ocrLanguage: OcrLanguage;
   ocrMathMode: boolean;
   reasoningEffort: ReasoningEffortSetting;
+  shortcuts?: ShortcutBinding[];
+  promptTemplateId?: PromptTemplateId;
+  customPromptInstruction?: string;
 }
 
 export interface Announcement {
@@ -40,6 +58,7 @@ export interface Announcement {
   content: string;
   level: string;
   publishedAt: string;
+  category?: string;
 }
 
 export interface AnnouncementEvent {
@@ -57,6 +76,14 @@ export interface ProxyHealthResult {
   tokenCount?: number;
   rateLimitEnabled?: boolean;
   providerCount?: number;
+  serviceUrls?: {
+    local?: string[];
+    lan?: string[];
+    public?: string[];
+  };
+  announcementEnabled?: boolean;
+  announcementCount?: number;
+  loadedAt?: string;
 }
 
 export interface ApiProviderOption {
@@ -99,6 +126,21 @@ export interface OcrPreviewResult {
   sourceMode: InputMode;
   reason: OcrPreviewReason;
   fallbackReason?: string;
+  candidates?: OcrCandidate[];
+  selectedCandidateId?: string;
+}
+
+export interface OcrCandidate {
+  id: string;
+  label: string;
+  language: OcrLanguage;
+  confidence: number;
+  text: string;
+}
+
+export interface OcrRecognitionResult {
+  recognizedText: string;
+  candidates: OcrCandidate[];
 }
 
 export type ExplainRegionResult = ExplainResult | OcrPreviewResult;

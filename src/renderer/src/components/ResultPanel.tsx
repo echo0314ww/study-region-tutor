@@ -24,16 +24,19 @@ export interface ResultPanelProps {
   canRetry: boolean;
   canExport: boolean;
   exportStatus: string;
+  isCurrentFavorite: boolean;
   onClose: () => void;
   onPanelPointerDown: (event: PointerEvent, mode: DragMode) => void;
   onFollowUpTextChange: (text: string) => void;
   onSendFollowUp: () => void;
   onSendOcrPreview: () => void;
   onOcrPreviewTextChange: (text: string) => void;
+  onOcrPreviewCandidateApply: (candidateId: string) => void;
   onOcrPreviewCancel: () => void;
   onStartNextQuestion: () => void;
   onEndCurrentQuestion: () => void;
   onRetry: () => void;
+  onToggleFavorite: () => void;
   onCopyAnswer: () => void;
   onExportAnswer: () => void;
   onPointerEnter: () => void;
@@ -55,16 +58,19 @@ export function ResultPanel({
   canRetry,
   canExport,
   exportStatus,
+  isCurrentFavorite,
   onClose,
   onPanelPointerDown,
   onFollowUpTextChange,
   onSendFollowUp,
   onSendOcrPreview,
   onOcrPreviewTextChange,
+  onOcrPreviewCandidateApply,
   onOcrPreviewCancel,
   onStartNextQuestion,
   onEndCurrentQuestion,
   onRetry,
+  onToggleFavorite,
   onCopyAnswer,
   onExportAnswer,
   onPointerEnter,
@@ -132,6 +138,7 @@ export function ResultPanel({
           error={error}
           stoppedMessage={stoppedMessage}
           onTextChange={onOcrPreviewTextChange}
+          onApplyCandidate={onOcrPreviewCandidateApply}
           onSend={onSendOcrPreview}
           onReselect={onStartNextQuestion}
           onCancel={onOcrPreviewCancel}
@@ -168,6 +175,8 @@ export function ResultPanel({
           onEndQuestion={onEndCurrentQuestion}
           canExport={canExport}
           exportStatus={exportStatus}
+          isCurrentFavorite={isCurrentFavorite}
+          onToggleFavorite={onToggleFavorite}
           onCopyAnswer={onCopyAnswer}
           onExportAnswer={onExportAnswer}
         />

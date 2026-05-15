@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ApiConnectionMode,
   ApiProviderOption,
@@ -16,6 +16,8 @@ import type {
   GuideKind,
   ProxyHealthStatus,
   SettingsView,
+  StudyItem,
+  StudyItemPatch,
   UiConversationTurn
 } from './uiTypes';
 import {
@@ -24,7 +26,9 @@ import {
   DEFAULT_SETTINGS,
   PRODUCT_GUIDE_SEEN_VERSION_KEY,
   PROXY_TOKEN_INVALID_MESSAGE,
-  RELEASE_GUIDE_SEEN_VERSION_KEY
+  RELEASE_GUIDE_SEEN_VERSION_KEY,
+  SETUP_WIZARD_COMPLETED_VERSION_KEY,
+  SETUP_WIZARD_DISMISSED_VERSION_KEY
 } from './constants';
 import { buildConversationMarkdown } from '../../shared/exportConversation';
 import {
@@ -39,10 +43,13 @@ import {
   savePersistedSettings,
   settingsWithApiDefaults,
   settingsWithEffectiveProxyUrl,
-  settingsWithPersistedUserSettings
+  settingsWithPersistedUserSettings,
+  shortcutBindings
 } from './uiUtils';
 import { useAnnouncements } from './useAnnouncements';
 import { usePointerInteractions } from './usePointerInteractions';
+import { useKeyboardShortcuts } from './useKeyboardShortcuts';
+import { loadStudyItems, saveStudyItems, updateStudyItemMetadata, upsertStudyItem } from './studyLibrary';
 import { CaptureConfirmOverlay } from './components/CaptureConfirmOverlay';
 import { DragCaptureOverlay } from './components/DragCaptureOverlay';
 import { Toolbar } from './components/Toolbar';
@@ -50,6 +57,7 @@ import { AnnouncementPanel } from './components/AnnouncementPanel';
 import { ResultPanel } from './components/ResultPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { GuidePanel } from './components/GuidePanel';
+import { SetupWizard } from './components/SetupWizard';
 import { guideDefinition, hasGuideContent } from './guides';
 
 export function App(): JSX.Element {
@@ -66,6 +74,8 @@ export function App(): JSX.Element {
   const [settingsPanelPosition, setSettingsPanelPosition] = useState<FloatingPosition | null>(null);
   const [result, setResult] = useState('');
   const [activeSessionId, setActiveSessionId] = useState('');
+  const [activeStudyItemId, setActiveStudyItemId] = useState('');
+  const [studyItems, setStudyItems] = useState<StudyItem[]>(() => loadStudyItems());
   const [conversationTurns, setConversationTurns] = useState<UiConversationTurn[]>([]);
   const [followUpText, setFollowUpText] = useState('');
   const [progressText, setProgressText] = useState('');
@@ -81,6 +91,8 @@ export function App(): JSX.Element {
   const [apiDefaults, setApiDefaults] = useState<ApiRuntimeDefaults | null>(null);
   const [apiProviders, setApiProviders] = useState<ApiProviderOption[]>([]);
   const [settingsView, setSettingsView] = useState<SettingsView>('normal');
+  const [isSetupWizardOpen, setIsSetupWizardOpen] = useState(false);
+  const [hasInitializedSettings, setHasInitializedSettings] = useState(false);
   const [proxyHealthStatus, setProxyHealthStatus] = useState<ProxyHealthStatus>('idle');
   const [proxyHealthMessage, setProxyHealthMessage] = useState('');
   const [appVersion, setAppVersion] = useState('');
@@ -103,6 +115,7 @@ export function App(): JSX.Element {
   const modelRequestIdRef = useRef(0);
   const proxyHealthRequestIdRef = useRef(0);
   const isModelCustomRef = useRef(false);
+  const setupWizardAutoOpenRef = useRef(false);
   useEffect(() => {
     isModelCustomRef.current = isModelCustom;
   }, [isModelCustom]);
@@ -110,6 +123,10 @@ export function App(): JSX.Element {
   useEffect(() => {
     savePersistedSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    saveStudyItems(studyItems);
+  }, [studyItems]);
 
   const hasPendingCaptureConfirm = pendingCaptureRegion !== null;
   const floatingPassthroughMode = isCaptureUiVisible && !isDragCaptureActive && !hasPendingCaptureConfirm;
@@ -156,6 +173,21 @@ export function App(): JSX.Element {
   });
 
   const canRetry = Boolean(lastRequestRef.current) && !isLoading;
+
+  useEffect(() => {
+    if (!activeStudyItemId || ocrPreview || conversationTurns.length === 0) {
+      return;
+    }
+
+    setStudyItems((current) =>
+      upsertStudyItem(current, {
+        id: activeStudyItemId,
+        appVersion,
+        settings,
+        turns: conversationTurns
+      })
+    );
+  }, [activeStudyItemId, appVersion, conversationTurns, ocrPreview, settings]);
 
   const clearSavedProxyTokenState = useCallback((message = PROXY_TOKEN_INVALID_MESSAGE): void => {
     setSettings((current) => ({ ...current, proxyToken: '' }));
@@ -367,7 +399,7 @@ export function App(): JSX.Element {
       });
   }, []);
 
-  const runSettingsDiagnostics = useCallback(async (): Promise<void> => {
+  const runSettingsDiagnostics = useCallback(async (deepCheck = false): Promise<void> => {
     setIsDiagnosticsRunning(true);
     setDiagnosticError('');
     setDiagnosticResult(null);
@@ -376,7 +408,7 @@ export function App(): JSX.Element {
       const response = await window.studyTutor.runDiagnostics({
         settings: settingsWithEffectiveProxyUrl(settings),
         appVersion,
-        deepCheck: false
+        deepCheck
       });
       setDiagnosticResult(response);
     } catch (caught) {
@@ -401,6 +433,30 @@ export function App(): JSX.Element {
   }, [appVersion, conversationTurns, settings.inputMode, settings.language, settings.model, settings.reasoningOnly]);
 
   const canExportConversation = conversationTurns.some((turn) => turn.content.trim());
+  const isCurrentStudyItemFavorite = Boolean(
+    activeStudyItemId && studyItems.find((item) => item.id === activeStudyItemId)?.favorite
+  );
+
+  const toggleCurrentStudyItemFavorite = useCallback((): void => {
+    if (!activeStudyItemId || !canExportConversation) {
+      return;
+    }
+
+    setStudyItems((current) => {
+      const existing = current.find((item) => item.id === activeStudyItemId);
+
+      if (!existing) {
+        return upsertStudyItem(current, {
+          id: activeStudyItemId,
+          appVersion,
+          settings,
+          turns: conversationTurns
+        }).map((item) => (item.id === activeStudyItemId ? { ...item, favorite: true } : item));
+      }
+
+      return updateStudyItemMetadata(current, activeStudyItemId, { favorite: !existing.favorite });
+    });
+  }, [activeStudyItemId, appVersion, canExportConversation, conversationTurns, settings]);
 
   const copyConversationMarkdown = useCallback((): void => {
     if (!canExportConversation) {
@@ -500,11 +556,13 @@ export function App(): JSX.Element {
 
         if (sourceSettings.apiConnectionMode === 'proxy') {
           await refreshApiProviders(sourceSettings);
+          setHasInitializedSettings(true);
           return;
         }
 
         setApiProviders(defaults.providers);
         if (!hasSelectedDirectApiConfig(defaults, sourceSettings.providerId)) {
+          setHasInitializedSettings(true);
           return;
         }
       } catch (caught) {
@@ -514,10 +572,12 @@ export function App(): JSX.Element {
 
         const message = caught instanceof Error ? caught.message : String(caught);
         setModelListError(message || '第三方 API 配置文件读取失败。');
+        setHasInitializedSettings(true);
         return;
       }
 
       void loadModels(sourceSettings);
+      setHasInitializedSettings(true);
     };
 
     void initializeApiSettings();
@@ -595,6 +655,27 @@ export function App(): JSX.Element {
   }, [activeGuideKind, appVersion]);
 
   useEffect(() => {
+    if (!appVersion || !hasInitializedSettings || activeGuideKind || setupWizardAutoOpenRef.current) {
+      return;
+    }
+
+    try {
+      const completedVersion = localStorage.getItem(SETUP_WIZARD_COMPLETED_VERSION_KEY);
+      const dismissedVersion = localStorage.getItem(SETUP_WIZARD_DISMISSED_VERSION_KEY);
+
+      if (completedVersion === appVersion || dismissedVersion === appVersion) {
+        return;
+      }
+    } catch {
+      // If localStorage is unavailable, the wizard can still be opened manually from settings.
+      return;
+    }
+
+    setupWizardAutoOpenRef.current = true;
+    setIsSetupWizardOpen(true);
+  }, [activeGuideKind, appVersion, hasInitializedSettings]);
+
+  useEffect(() => {
     if (!isSettingsOpen || !isProxyConnection || settingsView !== 'normal') {
       proxyHealthRequestIdRef.current += 1;
       return;
@@ -632,6 +713,7 @@ export function App(): JSX.Element {
     async (targetRegion = region): Promise<void> => {
       const requestId = createRequestId();
       activeRequestIdRef.current = requestId;
+      setActiveStudyItemId(createRequestId());
       latestProgressTextRef.current = '';
       hasAnswerStartedRef.current = false;
       streamingAssistantTurnIdRef.current = '';
@@ -862,6 +944,7 @@ export function App(): JSX.Element {
 
     setActiveSessionId('');
     setConversationTurns([]);
+    setActiveStudyItemId('');
     setResult('');
     setProgressText('');
     setOcrPreview(null);
@@ -1098,6 +1181,7 @@ export function App(): JSX.Element {
 
   const handleOcrPreviewCancel = useCallback((): void => {
     setOcrPreview(null);
+    setActiveStudyItemId('');
     setProgressText('');
     setError('');
     setStoppedMessage('');
@@ -1108,6 +1192,16 @@ export function App(): JSX.Element {
 
   const handleOcrPreviewTextChange = useCallback((text: string): void => {
     setOcrPreview((current) => (current ? { ...current, recognizedText: text } : current));
+  }, []);
+
+  const handleOcrPreviewCandidateApply = useCallback((candidateId: string): void => {
+    setOcrPreview((current) => {
+      const candidate = current?.candidates?.find((item) => item.id === candidateId);
+
+      return current && candidate
+        ? { ...current, recognizedText: candidate.text, selectedCandidateId: candidate.id }
+        : current;
+    });
   }, []);
 
   const handleToggleSettings = useCallback((): void => {
@@ -1121,6 +1215,74 @@ export function App(): JSX.Element {
   const handleCloseSettings = useCallback((): void => {
     setSettingsView('normal');
     setIsSettingsOpen(false);
+  }, []);
+
+  const openSetupWizard = useCallback((): void => {
+    setIsSetupWizardOpen(true);
+    setIsSettingsOpen(false);
+    setSettingsView('normal');
+    setActiveGuideKind(null);
+    closeAnnouncementPanel();
+  }, [closeAnnouncementPanel]);
+
+  const completeSetupWizard = useCallback((): void => {
+    if (appVersion) {
+      try {
+        localStorage.setItem(SETUP_WIZARD_COMPLETED_VERSION_KEY, appVersion);
+      } catch {
+        // Completion is best-effort; closing the wizard should still work.
+      }
+    }
+
+    setIsSetupWizardOpen(false);
+  }, [appVersion]);
+
+  const dismissSetupWizard = useCallback((): void => {
+    if (appVersion) {
+      try {
+        localStorage.setItem(SETUP_WIZARD_DISMISSED_VERSION_KEY, appVersion);
+      } catch {
+        // Dismissal is best-effort; closing the wizard should still work.
+      }
+    }
+
+    setIsSetupWizardOpen(false);
+  }, [appVersion]);
+
+  const restoreStudyItem = useCallback(
+    (item: StudyItem): void => {
+      setActiveStudyItemId(item.id);
+      setActiveSessionId('');
+      setConversationTurns(item.turns);
+      setResult([...item.turns].reverse().find((turn) => turn.role === 'assistant')?.content || '');
+      setStudyItems((current) =>
+        updateStudyItemMetadata(current, item.id, { lastReviewedAt: new Date().toISOString() })
+      );
+      setProgressText('');
+      setOcrPreview(null);
+      setError('');
+      setStoppedMessage('');
+      setFollowUpText('');
+      setIsResultOpen(true);
+      setIsSettingsOpen(false);
+      setSettingsView('normal');
+      closeAnnouncementPanel();
+    },
+    [closeAnnouncementPanel]
+  );
+
+  const updateStudyItem = useCallback((id: string, patch: StudyItemPatch): void => {
+    setStudyItems((current) => updateStudyItemMetadata(current, id, patch));
+  }, []);
+
+  const deleteStudyItem = useCallback((id: string): void => {
+    setStudyItems((current) => current.filter((item) => item.id !== id));
+    setActiveStudyItemId((current) => (current === id ? '' : current));
+  }, []);
+
+  const clearStudyItems = useCallback((): void => {
+    setStudyItems([]);
+    setActiveStudyItemId('');
   }, []);
 
   const startDragCapture = useCallback((): void => {
@@ -1166,6 +1328,85 @@ export function App(): JSX.Element {
   const cancelPendingCapture = useCallback((): void => {
     setPendingCaptureRegion(null);
   }, []);
+
+  const activeShortcutBindings = useMemo(() => shortcutBindings(settings), [settings]);
+  const shortcutHandlers = useMemo(
+    () => ({
+      'start-capture': (): void => {
+        if (!isLoading) {
+          startDragCapture();
+        }
+      },
+      'cancel-capture': (): void => {
+        if (isLoading) {
+          cancelCurrentRequest();
+          return;
+        }
+
+        if (pendingCaptureRegion) {
+          cancelPendingCapture();
+          return;
+        }
+
+        if (isDragCaptureActive) {
+          cancelDragCapture();
+          return;
+        }
+
+        if (isSetupWizardOpen) {
+          dismissSetupWizard();
+          return;
+        }
+
+        if (isSettingsOpen) {
+          handleCloseSettings();
+          return;
+        }
+
+        if (isAnnouncementOpen) {
+          closeAnnouncementPanel();
+        }
+      },
+      'confirm-capture': (): void => {
+        if (pendingCaptureRegion && !isLoading) {
+          confirmPendingCapture();
+        }
+      },
+      'toggle-result': (): void => setIsResultOpen((open) => !open),
+      'open-settings': (): void => handleToggleSettings(),
+      'open-announcements': (): void => toggleAnnouncementPanel(),
+      'finish-question': (): void => {
+        if (!isLoading && (activeSessionId || conversationTurns.length > 0 || result || ocrPreview)) {
+          void endCurrentQuestion();
+        }
+      }
+    }),
+    [
+      activeSessionId,
+      cancelCurrentRequest,
+      cancelDragCapture,
+      cancelPendingCapture,
+      closeAnnouncementPanel,
+      confirmPendingCapture,
+      conversationTurns.length,
+      dismissSetupWizard,
+      endCurrentQuestion,
+      handleCloseSettings,
+      handleToggleSettings,
+      isAnnouncementOpen,
+      isDragCaptureActive,
+      isLoading,
+      isSettingsOpen,
+      isSetupWizardOpen,
+      ocrPreview,
+      pendingCaptureRegion,
+      result,
+      startDragCapture,
+      toggleAnnouncementPanel
+    ]
+  );
+
+  useKeyboardShortcuts(activeShortcutBindings, shortcutHandlers);
 
   return (
     <main
@@ -1223,6 +1464,33 @@ export function App(): JSX.Element {
         />
       )}
 
+      {isCaptureUiVisible && isSetupWizardOpen && (
+        <SetupWizard
+          settings={settings}
+          apiDefaults={apiDefaults}
+          apiProviders={apiProviders}
+          modelOptions={modelOptions}
+          modelListError={modelListError}
+          isModelListLoading={isModelListLoading}
+          isModelCustom={isModelCustom}
+          proxyHealthStatus={proxyHealthStatus}
+          proxyHealthMessage={proxyHealthMessage}
+          appVersion={appVersion}
+          currentProxyUrl={currentProxyUrl}
+          onSettingsChange={setSettings}
+          onSelectApiConnectionMode={selectApiConnectionMode}
+          onSelectApiProvider={selectApiProvider}
+          onRefreshApiProviders={() => void refreshApiProviders(settings)}
+          onLoadModels={() => void loadModels(settings)}
+          onValidateProxyConnection={() => void validateProxyConnection()}
+          onIsModelCustomChange={setIsModelCustom}
+          onComplete={completeSetupWizard}
+          onDismiss={dismissSetupWizard}
+          onPointerEnter={enterInteractiveSurface}
+          onPointerLeave={leaveInteractiveSurface}
+        />
+      )}
+
       {isCaptureUiVisible && isAnnouncementOpen && (
         <AnnouncementPanel
           announcements={announcements}
@@ -1253,16 +1521,19 @@ export function App(): JSX.Element {
           canRetry={canRetry}
           canExport={canExportConversation}
           exportStatus={exportStatus}
+          isCurrentFavorite={isCurrentStudyItemFavorite}
           onClose={() => setIsResultOpen(false)}
           onPanelPointerDown={onResultPanelPointerDown}
           onFollowUpTextChange={setFollowUpText}
           onSendFollowUp={() => void sendFollowUp()}
           onSendOcrPreview={() => void sendOcrPreview()}
           onOcrPreviewTextChange={handleOcrPreviewTextChange}
+          onOcrPreviewCandidateApply={handleOcrPreviewCandidateApply}
           onOcrPreviewCancel={handleOcrPreviewCancel}
           onStartNextQuestion={() => void startNextQuestion()}
           onEndCurrentQuestion={() => void endCurrentQuestion()}
           onRetry={retry}
+          onToggleFavorite={toggleCurrentStudyItemFavorite}
           onCopyAnswer={copyConversationMarkdown}
           onExportAnswer={() => void exportConversationMarkdown()}
           onPointerEnter={enterInteractiveSurface}
@@ -1288,6 +1559,7 @@ export function App(): JSX.Element {
           diagnosticResult={diagnosticResult}
           diagnosticError={diagnosticError}
           isDiagnosticsRunning={isDiagnosticsRunning}
+          studyItems={studyItems}
           settingsPanelPosition={settingsPanelPosition}
           onSettingsChange={setSettings}
           onSettingsViewChange={setSettingsView}
@@ -1300,8 +1572,13 @@ export function App(): JSX.Element {
           onRefreshApiProviders={() => void refreshApiProviders(settings)}
           onLoadModels={() => void loadModels(settings)}
           onValidateProxyConnection={() => void validateProxyConnection()}
-          onRunDiagnostics={() => void runSettingsDiagnostics()}
+          onRunDiagnostics={(deepCheck) => void runSettingsDiagnostics(deepCheck)}
           onCopyDiagnosticReport={copyTextToClipboard}
+          onOpenSetupWizard={openSetupWizard}
+          onRestoreStudyItem={restoreStudyItem}
+          onUpdateStudyItem={updateStudyItem}
+          onDeleteStudyItem={deleteStudyItem}
+          onClearStudyItems={clearStudyItems}
           onOpenGuide={openGuide}
           onDragPointerDown={(event) => onFloatingPointerDown(event, 'settings')}
           onPointerEnter={enterInteractiveSurface}

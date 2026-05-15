@@ -7,6 +7,32 @@ interface ReleaseGuideContent {
 }
 
 const releaseGuidesByVersion: Record<string, ReleaseGuideContent> = {
+  '1.1.3': {
+    title: 'v1.1.3 新增功能',
+    subtitle: '首次配置、快捷键、学习库、OCR 候选和文档体系更新。',
+    steps: [
+      {
+        title: '首次配置更集中',
+        body: '首次打开会通过配置向导引导选择本地直连或代理服务、刷新服务商和模型，并确认常用快捷键。',
+        action: '设置页顶部可以随时重新打开配置向导。'
+      },
+      {
+        title: '学习库可以管理题目',
+        body: '本地历史升级为学习库/错题本，会保存讲解文本、学科、标签、收藏和掌握状态，支持搜索、筛选、恢复、删除和清空。',
+        action: '学习库不保存截图、API Key 或代理 Token。'
+      },
+      {
+        title: 'OCR 候选可切换',
+        body: 'OCR 确认页会展示多路候选，复杂公式或低清截图可以先切换候选、编辑文本，再发送讲解。',
+        action: '如果识别为空或明显错误，建议重新框选更清晰的题目区域。'
+      },
+      {
+        title: '排障和扩展入口更完整',
+        body: '设置页新增代理管理、深度诊断、Provider 配置生成器和 Prompt 模板；公告面板支持按分类分组。',
+        action: '遇到连接问题时先运行诊断并复制脱敏报告。'
+      }
+    ]
+  },
   '1.1.2': {
     title: 'v1.1.2 新增功能',
     subtitle: '向导回顾、代理热更新、跨屏截图和设置持久化更新。',
@@ -325,9 +351,9 @@ export function productGuide(version: string): GuideDefinition {
         action: '点击“截图下一题”会结束当前题目并进入新的框选流程。'
       },
       {
-        title: '导出学习记录',
-        body: '结果窗口底部支持复制答案或导出答案，默认只包含文字讲解和追问记录，不包含截图、API Key、代理 Token 或代理地址。',
-        action: '适合把解题思路整理到笔记软件中。'
+        title: '沉淀学习记录',
+        body: '结果窗口底部支持收藏当前题、复制答案或导出答案；完成讲解后也会自动保存到学习库，便于后续搜索、复习和标记掌握状态。',
+        action: '学习库和导出内容默认不包含截图、API Key、代理 Token 或代理地址。'
       }
     ]
   };

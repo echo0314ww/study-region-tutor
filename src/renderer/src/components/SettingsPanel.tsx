@@ -1,4 +1,16 @@
-import { Check, Loader2, RefreshCw, X } from 'lucide-react';
+import {
+  Check,
+  FileClock,
+  FileCode2,
+  Keyboard,
+  Loader2,
+  MessageSquareText,
+  Network,
+  RefreshCw,
+  RotateCcw,
+  Wand2,
+  X
+} from 'lucide-react';
 import type { PointerEvent, RefObject } from 'react';
 import React, { useMemo } from 'react';
 import type {
@@ -15,11 +27,22 @@ import type {
   TutorSettings,
   UpdateStatusEvent
 } from '../../../shared/types';
-import type { FloatingPosition, GuideKind, ProxyHealthStatus, SettingsView } from '../uiTypes';
-import { BUILT_IN_PROXY_URL, CUSTOM_MODEL_VALUE, MODEL_PLACEHOLDER_VALUE } from '../constants';
+import type {
+  FloatingPosition,
+  GuideKind,
+  ProxyHealthStatus,
+  SettingsView,
+  StudyItem,
+  StudyItemPatch
+} from '../uiTypes';
+import { BUILT_IN_PROXY_URL, CUSTOM_MODEL_VALUE, DEFAULT_SHORTCUTS, MODEL_PLACEHOLDER_VALUE } from '../constants';
 import { normalizeReasoningEffort, reasoningHelpText, reasoningOptionsFor } from '../../../shared/reasoning';
-import { hasDirectApiConfig } from '../uiUtils';
+import { hasDirectApiConfig, shortcutActionLabel, shortcutBindings, shortcutFromKeyboardEvent } from '../uiUtils';
 import { DiagnosticReport } from './DiagnosticReport';
+import { ProxyAdminPanel } from './ProxyAdminPanel';
+import { HistoryPanel } from './HistoryPanel';
+import { ProviderConfigGenerator } from './ProviderConfigGenerator';
+import { PromptTemplatePanel } from './PromptTemplatePanel';
 
 export interface SettingsPanelProps {
   settingsPanelRef: RefObject<HTMLElement | null>;
@@ -38,6 +61,7 @@ export interface SettingsPanelProps {
   diagnosticResult: DiagnosticResult | null;
   diagnosticError: string;
   isDiagnosticsRunning: boolean;
+  studyItems: StudyItem[];
   settingsPanelPosition: FloatingPosition | null;
   onSettingsChange: (updater: (current: TutorSettings) => TutorSettings) => void;
   onSettingsViewChange: (view: SettingsView) => void;
@@ -50,8 +74,13 @@ export interface SettingsPanelProps {
   onRefreshApiProviders: () => void;
   onLoadModels: () => void;
   onValidateProxyConnection: () => void;
-  onRunDiagnostics: () => void;
+  onRunDiagnostics: (deepCheck?: boolean) => void;
   onCopyDiagnosticReport: (text: string) => void;
+  onOpenSetupWizard: () => void;
+  onRestoreStudyItem: (item: StudyItem) => void;
+  onUpdateStudyItem: (id: string, patch: StudyItemPatch) => void;
+  onDeleteStudyItem: (id: string) => void;
+  onClearStudyItems: () => void;
   onOpenGuide: (kind: GuideKind) => void;
   onDragPointerDown: (event: PointerEvent) => void;
   onPointerEnter: () => void;
@@ -75,6 +104,7 @@ export function SettingsPanel({
   diagnosticResult,
   diagnosticError,
   isDiagnosticsRunning,
+  studyItems,
   settingsPanelPosition,
   onSettingsChange,
   onSettingsViewChange,
@@ -89,6 +119,11 @@ export function SettingsPanel({
   onValidateProxyConnection,
   onRunDiagnostics,
   onCopyDiagnosticReport,
+  onOpenSetupWizard,
+  onRestoreStudyItem,
+  onUpdateStudyItem,
+  onDeleteStudyItem,
+  onClearStudyItems,
   onOpenGuide,
   onDragPointerDown,
   onPointerEnter,
@@ -117,6 +152,19 @@ export function SettingsPanel({
   );
   const reasoningSelectValue = normalizeReasoningEffort(settings.reasoningEffort, currentProviderType, settings.model);
   const reasoningStatusText = reasoningHelpText(currentProviderType, settings.model);
+  const activeShortcuts = shortcutBindings(settings);
+  const settingsTitle =
+    settingsView === 'proxyAdvanced'
+      ? '高级设置'
+      : settingsView === 'proxyAdmin'
+        ? '代理管理'
+        : settingsView === 'history'
+          ? '学习库'
+          : settingsView === 'providerGenerator'
+            ? 'Provider 配置生成器'
+            : settingsView === 'promptTemplates'
+              ? 'Prompt 模板'
+        : '设置';
 
   const modelIds = useMemo(() => new Set(modelOptions.map((model) => model.id)), [modelOptions]);
   const modelSelectValue = isModelCustom
@@ -209,7 +257,7 @@ export function SettingsPanel({
     >
       <div className="panel-header" onPointerDown={onDragPointerDown}>
         <div className="settings-title-row">
-          <strong>{settingsView === 'proxyAdvanced' ? '高级设置' : '设置'}</strong>
+          <strong>{settingsTitle}</strong>
           {settingsView === 'normal' && isProxyConnection && (
             <button
               className="secondary-button settings-advanced-button"
@@ -224,7 +272,7 @@ export function SettingsPanel({
               高级设置
             </button>
           )}
-          {settingsView === 'proxyAdvanced' && (
+          {settingsView !== 'normal' && (
             <button
               className="secondary-button settings-advanced-button"
               type="button"
@@ -287,9 +335,51 @@ export function SettingsPanel({
             </div>
           )}
         </div>
+      ) : settingsView === 'proxyAdmin' ? (
+        <ProxyAdminPanel
+          settings={settings}
+          apiDefaults={apiDefaults}
+          currentProxyUrl={currentProxyUrl}
+          proxyHealthStatus={proxyHealthStatus}
+          proxyHealthMessage={proxyHealthMessage}
+          onValidateProxyConnection={onValidateProxyConnection}
+          onCopy={onCopyDiagnosticReport}
+        />
+      ) : settingsView === 'history' ? (
+        <HistoryPanel
+          studyItems={studyItems}
+          onRestore={onRestoreStudyItem}
+          onUpdate={onUpdateStudyItem}
+          onDelete={onDeleteStudyItem}
+          onClear={onClearStudyItems}
+        />
+      ) : settingsView === 'providerGenerator' ? (
+        <ProviderConfigGenerator onCopy={onCopyDiagnosticReport} />
+      ) : settingsView === 'promptTemplates' ? (
+        <PromptTemplatePanel settings={settings} onSettingsChange={onSettingsChange} />
       ) : (
         <>
           <div className="settings-guide-row">
+            <button className="secondary-button" type="button" onClick={onOpenSetupWizard}>
+              <Wand2 size={16} />
+              配置向导
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onSettingsViewChange('proxyAdmin')}>
+              <Network size={16} />
+              代理管理
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onSettingsViewChange('history')}>
+              <FileClock size={16} />
+              学习库
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onSettingsViewChange('providerGenerator')}>
+              <FileCode2 size={16} />
+              Provider 配置生成器
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onSettingsViewChange('promptTemplates')}>
+              <MessageSquareText size={16} />
+              Prompt 模板
+            </button>
             <button className="secondary-button" type="button" onClick={() => onOpenGuide('product')}>
               整体功能向导
             </button>
@@ -340,9 +430,13 @@ export function SettingsPanel({
                 <strong>一键诊断</strong>
                 <span>检查配置、代理、Token、服务商、模型列表和当前模型，并给出修复建议。</span>
               </div>
-              <button className="secondary-button" type="button" onClick={onRunDiagnostics} disabled={isDiagnosticsRunning}>
+              <button className="secondary-button" type="button" onClick={() => onRunDiagnostics(false)} disabled={isDiagnosticsRunning}>
                 {isDiagnosticsRunning ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
                 {isDiagnosticsRunning ? '诊断中' : '开始诊断'}
+              </button>
+              <button className="secondary-button" type="button" onClick={() => onRunDiagnostics(true)} disabled={isDiagnosticsRunning}>
+                {isDiagnosticsRunning ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
+                深度测试
               </button>
             </div>
             {diagnosticError && <div className="proxy-validation-result danger">{diagnosticError}</div>}
@@ -352,6 +446,79 @@ export function SettingsPanel({
                 onCopy={onCopyDiagnosticReport}
               />
             )}
+          </div>
+          <div className="shortcut-settings-box">
+            <div className="shortcut-settings-header">
+              <div>
+                <strong>快捷键</strong>
+                <span>默认快捷键已启用，可在这里捕获新的组合键或停用单项。</span>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() =>
+                  onSettingsChange((current) => ({
+                    ...current,
+                    shortcuts: DEFAULT_SHORTCUTS.map((shortcut) => ({ ...shortcut }))
+                  }))
+                }
+              >
+                <RotateCcw size={16} />
+                恢复默认
+              </button>
+            </div>
+            <div className="shortcut-list">
+              {activeShortcuts.map((shortcut) => (
+                <div className="shortcut-row" key={shortcut.action}>
+                  <label className="toggle-row shortcut-toggle">
+                    <input
+                      type="checkbox"
+                      checked={shortcut.enabled}
+                      onChange={(event) =>
+                        onSettingsChange((current) => ({
+                          ...current,
+                          shortcuts: activeShortcuts.map((item) =>
+                            item.action === shortcut.action ? { ...item, enabled: event.target.checked } : item
+                          )
+                        }))
+                      }
+                    />
+                    {shortcutActionLabel(shortcut.action)}
+                  </label>
+                  <label className="shortcut-input-label">
+                    <Keyboard size={14} />
+                    <input
+                      value={shortcut.key}
+                      onKeyDown={(event) => {
+                        const nextKey = shortcutFromKeyboardEvent(event);
+
+                        if (!nextKey) {
+                          return;
+                        }
+
+                        event.preventDefault();
+                        onSettingsChange((current) => ({
+                          ...current,
+                          shortcuts: activeShortcuts.map((item) =>
+                            item.action === shortcut.action ? { ...item, key: nextKey, enabled: true } : item
+                          )
+                        }));
+                      }}
+                      onChange={(event) =>
+                        onSettingsChange((current) => ({
+                          ...current,
+                          shortcuts: activeShortcuts.map((item) =>
+                            item.action === shortcut.action ? { ...item, key: event.target.value } : item
+                          )
+                        }))
+                      }
+                      placeholder="按下组合键"
+                      spellCheck={false}
+                    />
+                  </label>
+                </div>
+              ))}
+            </div>
           </div>
           <label>
             API 连接模式

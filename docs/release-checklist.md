@@ -4,9 +4,11 @@
 
 ## 新 Codex 会话接手
 
+- [ ] 阅读 `docs/START_HERE.md`。
 - [ ] 阅读 `PROJECT_CONTEXT.md`。
 - [ ] 阅读 `docs/codex-handoff.md`。
 - [ ] 阅读 `docs/architecture.md`。
+- [ ] 按任务类型阅读 `docs/proxy.md`、`docs/provider-config.md`、`docs/announcements.md`、`docs/release.md` 或 `docs/documentation-policy.md`。
 - [ ] 查看最近的 `docs/dev-log/YYYY-MM-DD.md`。
 - [ ] 运行或查看 `git status --short --branch`，确认工作区已有改动。
 - [ ] 确认不读取、不提交 `.env.local`、API Key、代理 Token、ngrok Token 或 GitHub token。
@@ -14,12 +16,14 @@
 ## 功能改动后
 
 - [ ] 确认 `README.md` 是否需要更新运行、配置、使用或排障说明。
+- [ ] 确认专题文档是否需要更新：`docs/proxy.md`、`docs/provider-config.md`、`docs/announcements.md`、`docs/release.md`、`docs/documentation-policy.md`。
 - [ ] 更新 `CHANGELOG.md` 的 `Unreleased`，记录面向开发者的详细变化。
 - [ ] 更新 `RELEASE_NOTES.md` 的 `Unreleased`，记录面向普通用户的简短变化。
 - [ ] 更新 `PROJECT_CONTEXT.md`，让下一次 Codex 对话能恢复当前系统约定。
 - [ ] 如涉及版本公告或发布，更新 `announcements/releases.json`。
 - [ ] 如涉及版本发布或用户可见变化，检查 `src/renderer/src/guides.ts`：判断是否需要填充“本版本新增向导”，并判断整体功能向导是否需要更新；已发布版本的新增向导条目应继续保留在历史版本向导回顾中，不要删除；若不需要更新，也在实施记录或提交说明中写明原因。
 - [ ] 如改动过程值得回溯，新增或更新 `docs/dev-log/YYYY-MM-DD.md`。
+- [ ] 如形成长期流程、边界或取舍，新增或更新 `docs/decisions/` 中的 ADR。
 - [ ] 如涉及代理服务、Token、限流或 provider 协议配置，更新 `docs/proxy-config.example.env`。
 - [ ] 确认没有把 `.env.local`、API Key、代理 Token、ngrok Token 或 GitHub token 写入文档。
 
@@ -45,6 +49,7 @@
 - [ ] 当前版本出现在 `CHANGELOG.md`。
 - [ ] 当前版本出现在 `RELEASE_NOTES.md`。
 - [ ] `announcements/releases.json` 包含 `release-vX.Y.Z`，并在 `allAnnouncement` 中可见。
+- [ ] `announcements/releases.json` 的 `allAnnouncement` 第一项是 `release-vX.Y.Z`。
 - [ ] 已确认“本版本新增向导”、“历史版本向导回顾”和“整体功能向导”是否需要更新；用户可感知的新入口、新流程、新配置或迁移提示应写入本版本新增向导，旧版本新增向导应保留供历史回顾使用。
 - [ ] 已回看历史版本新增向导，确认旧版本条目仍可从“历史版本向导回顾”访问。
 - [ ] Git 工作区中没有误提交 `out/`、`release/`、`node_modules/` 或本地配置文件。

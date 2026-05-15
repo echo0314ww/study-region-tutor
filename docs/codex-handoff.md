@@ -4,16 +4,17 @@
 
 ## 新对话启动顺序
 
-1. 先读 `PROJECT_CONTEXT.md`，恢复当前版本、未发布改动、发布方式和项目约定。
-2. 再读 `docs/architecture.md`，确认模块边界、核心流程、IPC 边界和安全约定。
-3. 再读 `docs/release-checklist.md`，确认本次改动后需要更新哪些文档和验证哪些命令。
-4. 查看最近的 `docs/dev-log/YYYY-MM-DD.md`，了解最近一次重要实施过程。
-5. 运行或查看 `git status --short --branch`，确认当前工作区已有改动；不要回滚不是自己写的改动。
+1. 先读 `docs/START_HERE.md`，确认任务类型、硬性约束和应读文档。
+2. 再读 `PROJECT_CONTEXT.md`，恢复当前版本、未发布改动、发布方式和最近风险。
+3. 再读 `docs/architecture.md`，确认模块边界、核心流程、IPC 边界和安全约定。
+4. 按任务类型阅读 `docs/proxy.md`、`docs/provider-config.md`、`docs/announcements.md`、`docs/release.md` 或 `docs/documentation-policy.md`。
+5. 查看最近的 `docs/dev-log/YYYY-MM-DD.md`，了解最近一次重要实施过程。
+6. 运行或查看 `git status --short --branch`，确认当前工作区已有改动；不要回滚不是自己写的改动。
 
 Windows PowerShell 查看中文文档时，优先使用：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 PROJECT_CONTEXT.md
+powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 docs/START_HERE.md
 ```
 
 ## 开发原则
@@ -31,8 +32,11 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 PROJECT_CONTEXT.m
 - 涉及代理服务和 ngrok 环境读取时，优先修改 `server/runtime-env.mjs`，保持环境变量、`.env.local`、`.env` 的优先级一致。
 - 涉及思考程度时，先看 `src/shared/reasoning.ts`。设置面板、主进程和代理服务都要按服务商/模型归一化，不要再固定套用 `low/medium/high/xhigh`：Claude 4.6 可用 `max` 并映射到 `output_config.effort`，Gemini 3/2.5 分别使用 `thinkingLevel` / `thinkingBudget`。
 - 涉及前端设置持久化时，只把非敏感设置写入渲染层 `localStorage`；API Key 和代理 Token 不得进入普通 `localStorage`。
+- 涉及长期流程、边界或取舍时，优先新增或更新 `docs/decisions/` 中的 ADR，不要只留在聊天记录里。
 
 ## 文档更新矩阵
+
+完整规则见 `docs/documentation-policy.md`。常用矩阵如下：
 
 - 用户使用、配置、排障、代理、ngrok、公告、发布方式变化：更新 `README.md`。
 - 功能、修复、内部维护变化：更新 `CHANGELOG.md` 的 `Unreleased`。
@@ -40,8 +44,10 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 PROJECT_CONTEXT.m
 - 新对话必须知道的状态、约定、未发布改动：更新 `PROJECT_CONTEXT.md`。
 - 架构边界、目录职责、IPC 或核心流程变化：更新 `docs/architecture.md`。
 - 发布流程或验证命令变化：更新 `docs/release-checklist.md`。
+- 代理、ngrok、Token 或限流变化：更新 `docs/proxy.md` 和 `docs/proxy-config.example.env`。
+- Provider 协议、模型列表或思考程度变化：更新 `docs/provider-config.md` 和 `docs/architecture.md`。
+- 公告格式或公告展示变化：更新 `docs/announcements.md` 和相关公告文件。
 - 版本新增向导、历史版本向导回顾或整体功能向导变化：更新 `src/renderer/src/guides.ts`，必要时补充 `tests/guides.test.ts`，并在 `CHANGELOG.md` / `RELEASE_NOTES.md` 记录用户可见变化。
-- 代理服务、Token、限流或 provider 协议示例变化：更新 `docs/proxy-config.example.env`。
 - 重要实施过程、设计取舍或排障记录：新增或更新 `docs/dev-log/YYYY-MM-DD.md`。
 - 版本公告或正式发版：更新 `announcements/releases.json`。
 
@@ -77,6 +83,7 @@ Windows 正式发布统一走 GitHub Actions，不在本机手动发布 GitHub R
 - `announcements/releases.json` 中有 `release-vX.Y.Z`，并放入 `allAnnouncement`。
 - 已检查“本版本新增向导”、“历史版本向导回顾”和“整体功能向导”：需要更新则已更新，不需要更新则在实施记录或提交说明中写明原因；不要删除旧版本新增向导条目。
 - `npm run docs:check` 通过。
+- `docs/START_HERE.md`、`PROJECT_CONTEXT.md` 和相关专题文档没有过期版本描述。
 
 GitHub Actions 发布成功后，再在本机运行：
 

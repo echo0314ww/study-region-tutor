@@ -4,11 +4,15 @@ import type {
   ExplainRegionResult,
   OcrPreviewResult,
   RegionBounds,
+  ShortcutAction,
+  ShortcutBinding,
   TutorSettings
 } from '../../shared/types';
+import type React from 'react';
 import type { DragState, FloatingPosition, PanelDragState } from './uiTypes';
 import {
   BUILT_IN_PROXY_URL,
+  DEFAULT_SHORTCUTS,
   DEFAULT_SETTINGS,
   MIN_REGION,
   MIN_RESULT_PANEL_HEIGHT,
@@ -30,25 +34,120 @@ const PERSISTED_SETTING_KEYS = [
   'inputMode',
   'ocrLanguage',
   'ocrMathMode',
-  'reasoningEffort'
+  'reasoningEffort',
+  'shortcuts',
+  'promptTemplateId',
+  'customPromptInstruction'
 ] as const;
 
 type PersistedSettingKey = (typeof PERSISTED_SETTING_KEYS)[number];
 type PersistedTutorSettings = Partial<Pick<TutorSettings, PersistedSettingKey>>;
-type StringSettingKey = Exclude<PersistedSettingKey, 'reasoningOnly' | 'ocrMathMode'>;
+type StringSettingKey = Exclude<PersistedSettingKey, 'reasoningOnly' | 'ocrMathMode' | 'shortcuts'>;
 
-const FREE_TEXT_SETTING_KEYS = new Set<StringSettingKey>(['providerId', 'model', 'apiBaseUrl', 'proxyUrl']);
+const FREE_TEXT_SETTING_KEYS = new Set<StringSettingKey>([
+  'providerId',
+  'model',
+  'apiBaseUrl',
+  'proxyUrl',
+  'customPromptInstruction'
+]);
 const STRING_SETTING_OPTIONS: Partial<Record<StringSettingKey, readonly string[]>> = {
   apiConnectionMode: ['direct', 'proxy'],
   language: ['zh-CN', 'en'],
   apiMode: ['env', 'chat-completions', 'responses'],
   inputMode: ['ocr-text', 'image'],
   ocrLanguage: ['chi_sim', 'eng'],
-  reasoningEffort: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+  reasoningEffort: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  promptTemplateId: ['standard', 'concise', 'socratic', 'exam-safe', 'custom']
 };
+
+const SHORTCUT_ACTIONS = new Set<ShortcutAction>(DEFAULT_SHORTCUTS.map((shortcut) => shortcut.action));
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function normalizeShortcutKey(key: string): string {
+  const normalized = key.trim();
+
+  if (normalized.length === 1) {
+    return normalized.toUpperCase();
+  }
+
+  const aliases: Record<string, string> = {
+    esc: 'Escape',
+    escape: 'Escape',
+    enter: 'Enter',
+    return: 'Enter',
+    space: 'Space',
+    ' ': 'Space',
+    arrowup: 'ArrowUp',
+    arrowdown: 'ArrowDown',
+    arrowleft: 'ArrowLeft',
+    arrowright: 'ArrowRight'
+  };
+
+  return aliases[normalized.toLowerCase()] || normalized;
+}
+
+export function normalizeShortcutText(value: string): string {
+  const parts = value
+    .split('+')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const modifiers = new Set<string>();
+  let key = '';
+
+  for (const part of parts) {
+    const normalized = part.toLowerCase();
+
+    if (normalized === 'ctrl' || normalized === 'control') {
+      modifiers.add('Ctrl');
+    } else if (normalized === 'shift') {
+      modifiers.add('Shift');
+    } else if (normalized === 'alt' || normalized === 'option') {
+      modifiers.add('Alt');
+    } else if (normalized === 'meta' || normalized === 'cmd' || normalized === 'command') {
+      modifiers.add('Meta');
+    } else if (!key) {
+      key = normalizeShortcutKey(part);
+    }
+  }
+
+  return [...['Ctrl', 'Shift', 'Alt', 'Meta'].filter((modifier) => modifiers.has(modifier)), key]
+    .filter(Boolean)
+    .join('+');
+}
+
+function normalizeShortcutBindings(raw: unknown): ShortcutBinding[] {
+  const byAction = new Map<ShortcutAction, ShortcutBinding>();
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!isRecord(item)) {
+        continue;
+      }
+
+      const action = item.action;
+      const key = item.key;
+      const enabled = item.enabled;
+
+      if (typeof action !== 'string' || !SHORTCUT_ACTIONS.has(action as ShortcutAction) || typeof key !== 'string') {
+        continue;
+      }
+
+      byAction.set(action as ShortcutAction, {
+        action: action as ShortcutAction,
+        key: normalizeShortcutText(key),
+        enabled: typeof enabled === 'boolean' ? enabled : true
+      });
+    }
+  }
+
+  return DEFAULT_SHORTCUTS.map((shortcut) => ({
+    ...shortcut,
+    ...(byAction.get(shortcut.action) || {})
+  }));
 }
 
 function pickPersistableSettings(settings: TutorSettings): PersistedTutorSettings {
@@ -64,7 +163,10 @@ function pickPersistableSettings(settings: TutorSettings): PersistedTutorSetting
     inputMode: settings.inputMode,
     ocrLanguage: settings.ocrLanguage,
     ocrMathMode: settings.ocrMathMode,
-    reasoningEffort: settings.reasoningEffort
+    reasoningEffort: settings.reasoningEffort,
+    shortcuts: normalizeShortcutBindings(settings.shortcuts),
+    promptTemplateId: settings.promptTemplateId,
+    customPromptInstruction: settings.customPromptInstruction
   };
 }
 
@@ -79,6 +181,11 @@ function sanitizePersistedSettings(raw: unknown): PersistedTutorSettings {
     const value = raw[key];
 
     const defaultValue = DEFAULT_SETTINGS[key];
+
+    if (key === 'shortcuts') {
+      settings.shortcuts = normalizeShortcutBindings(value);
+      continue;
+    }
 
     if (typeof defaultValue === 'boolean') {
       if (typeof value === 'boolean') {
@@ -128,6 +235,9 @@ export function settingsWithPersistedUserSettings(settings: TutorSettings): Tuto
   return {
     ...settings,
     ...persisted,
+    shortcuts: normalizeShortcutBindings(persisted.shortcuts || settings.shortcuts),
+    promptTemplateId: persisted.promptTemplateId || settings.promptTemplateId || DEFAULT_SETTINGS.promptTemplateId,
+    customPromptInstruction: persisted.customPromptInstruction ?? settings.customPromptInstruction ?? '',
     apiKey: settings.apiKey,
     proxyToken: settings.proxyToken
   };
@@ -214,6 +324,52 @@ export function isReleaseAnnouncement(announcement: Announcement): boolean {
 
 export function announcementMetaText(announcement: Announcement): string {
   return announcement.level ? `${announcement.level} · ${announcement.publishedAt}` : announcement.publishedAt;
+}
+
+export function announcementCategory(announcement: Announcement): string {
+  if (announcement.category?.trim()) {
+    return announcement.category.trim();
+  }
+
+  return isReleaseAnnouncement(announcement) ? '版本公告' : '普通公告';
+}
+
+export function shortcutActionLabel(action: ShortcutAction): string {
+  const labels: Record<ShortcutAction, string> = {
+    'start-capture': '开始截图',
+    'cancel-capture': '取消截图/关闭当前操作',
+    'confirm-capture': '确认识别',
+    'toggle-result': '打开/关闭结果',
+    'open-settings': '打开/关闭设置',
+    'open-announcements': '打开/关闭公告',
+    'finish-question': '结束当前题目'
+  };
+
+  return labels[action];
+}
+
+export function shortcutFromKeyboardEvent(event: KeyboardEvent | React.KeyboardEvent): string {
+  const key = normalizeShortcutKey(event.key);
+
+  if (!key || ['Control', 'Shift', 'Alt', 'Meta'].includes(key)) {
+    return '';
+  }
+
+  return normalizeShortcutText(
+    [
+      event.ctrlKey ? 'Ctrl' : '',
+      event.shiftKey ? 'Shift' : '',
+      event.altKey ? 'Alt' : '',
+      event.metaKey ? 'Meta' : '',
+      key
+    ]
+      .filter(Boolean)
+      .join('+')
+  );
+}
+
+export function shortcutBindings(settings: TutorSettings): ShortcutBinding[] {
+  return normalizeShortcutBindings(settings.shortcuts);
 }
 
 export function createRequestId(): string {
