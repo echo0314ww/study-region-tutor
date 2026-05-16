@@ -9,6 +9,7 @@ import type {
 } from '../../../shared/types';
 import type { ProxyHealthStatus } from '../uiTypes';
 import { CUSTOM_MODEL_VALUE, MODEL_PLACEHOLDER_VALUE } from '../constants';
+import { useFocusTrap } from '../useFocusTrap';
 import { hasDirectApiConfig, shortcutActionLabel, shortcutBindings } from '../uiUtils';
 
 export interface SetupWizardProps {
@@ -23,6 +24,7 @@ export interface SetupWizardProps {
   proxyHealthMessage: string;
   appVersion: string;
   currentProxyUrl: string;
+  canComplete: boolean;
   onSettingsChange: (updater: (current: TutorSettings) => TutorSettings) => void;
   onSelectApiConnectionMode: (mode: ApiConnectionMode) => void;
   onSelectApiProvider: (providerId: string) => void;
@@ -48,6 +50,7 @@ export function SetupWizard({
   proxyHealthMessage,
   appVersion,
   currentProxyUrl,
+  canComplete,
   onSettingsChange,
   onSelectApiConnectionMode,
   onSelectApiProvider,
@@ -60,6 +63,7 @@ export function SetupWizard({
   onPointerEnter,
   onPointerLeave
 }: SetupWizardProps): JSX.Element {
+  const trapRef = useFocusTrap<HTMLElement>();
   const [stepIndex, setStepIndex] = useState(0);
   const isProxyConnection = settings.apiConnectionMode === 'proxy';
   const localEnvPath = apiDefaults?.localEnvPath || '%APPDATA%\\study-region-tutor\\.env.local';
@@ -82,8 +86,11 @@ export function SetupWizard({
 
   return (
     <section
+      ref={trapRef}
       className="setup-wizard"
       data-interactive="true"
+      role="dialog"
+      aria-modal="true"
       aria-label="first setup wizard"
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
@@ -103,6 +110,7 @@ export function SetupWizard({
             key={step}
             type="button"
             className={index === stepIndex ? 'active' : ''}
+            aria-current={index === stepIndex ? 'step' : undefined}
             onClick={() => setStepIndex(index)}
           >
             <span>{index + 1}</span>
@@ -302,7 +310,7 @@ export function SetupWizard({
           上一步
         </button>
         {isLastStep ? (
-          <button className="primary-button" type="button" onClick={onComplete}>
+          <button className="primary-button" type="button" onClick={onComplete} disabled={!canComplete}>
             <Check size={16} />
             完成配置
           </button>

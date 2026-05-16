@@ -28,6 +28,7 @@ import type {
   RunDiagnosticsRequest,
   RunPromptEvalRequest,
   RunPromptEvalResult,
+  StudyLibraryBackup,
   TutorSettings,
   UpdateStatusEvent
 } from '../shared/types';
@@ -51,6 +52,7 @@ const api = {
   listModels: (settings: TutorSettings): Promise<ModelListResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.listModels, settings),
   checkForUpdates: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
+  getUpdateStatus: (): Promise<UpdateStatusEvent> => ipcRenderer.invoke(IPC_CHANNELS.getUpdateStatus),
   downloadUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate),
   installUpdate: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
   getLatestAnnouncement: (sourceUrl?: string): Promise<AnnouncementEvent> =>
@@ -74,6 +76,10 @@ const api = {
   saveProxyToken: (token: string): Promise<ApiRuntimeDefaults> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveProxyToken, token),
   clearProxyToken: (): Promise<ApiRuntimeDefaults> => ipcRenderer.invoke(IPC_CHANNELS.clearProxyToken),
+  exportStudyBackup: (backup: StudyLibraryBackup): Promise<{ saved: boolean; path?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.exportStudyBackup, backup),
+  importStudyBackup: (): Promise<{ imported: boolean; backup?: StudyLibraryBackup }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.importStudyBackup),
   setDebugMode: (enabled: boolean): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.setDebugMode, enabled),
   setMousePassthrough: (ignored: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.setMousePassthrough, ignored),

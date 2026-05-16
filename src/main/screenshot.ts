@@ -1,6 +1,6 @@
 import { app, desktopCapturer, screen } from 'electron';
 import { join } from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { PNG } from 'pngjs';
 import type { CropPlan, CropSegment, DebugSnapshot, DisplayLike, RegionBounds } from '../shared/types';
 import { createCropPlan } from './geometry';
@@ -45,8 +45,29 @@ async function maybeWriteDebugPng(buffer: Buffer, snapshot: DebugSnapshot): Prom
     return;
   }
 
+  const tempDir = app.getPath('temp');
+  await cleanupDebugPngs(tempDir);
   const filename = `study-region-tutor-${Date.now()}-${snapshot.displayId}.png`;
-  await writeFile(join(app.getPath('temp'), filename), buffer);
+  await writeFile(join(tempDir, filename), buffer);
+}
+
+async function cleanupDebugPngs(tempDir: string): Promise<void> {
+  const entries = await readdir(tempDir).catch(() => []);
+  const snapshots = await Promise.all(
+    entries
+      .filter((entry) => /^study-region-tutor-\d+-.+\.png$/.test(entry))
+      .map(async (entry) => {
+        const path = join(tempDir, entry);
+        const stats = await stat(path).catch(() => undefined);
+        return stats ? { path, mtimeMs: stats.mtimeMs } : undefined;
+      })
+  );
+  const stale = snapshots
+    .filter((item): item is { path: string; mtimeMs: number } => Boolean(item))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(20);
+
+  await Promise.all(stale.map((item) => rm(item.path, { force: true }).catch(() => undefined)));
 }
 
 async function captureSegment(display: DisplayLike, segment: CropSegment): Promise<Buffer> {
@@ -59,13 +80,10 @@ async function captureSegment(display: DisplayLike, segment: CropSegment): Promi
       height: physicalHeight
     }
   });
-  const source =
-    sources.find((candidate) => Number(candidate.display_id) === display.id) ??
-    sources.find((candidate) => candidate.name.includes(String(display.id))) ??
-    sources[0];
+  const source = sources.find((candidate) => Number(candidate.display_id) === display.id);
 
   if (!source || source.thumbnail.isEmpty()) {
-    throw new Error('No screen source was returned by the operating system.');
+    throw new Error('No matching screen source was returned by the operating system. Try using one display.');
   }
 
   let image = source.thumbnail.crop(segment.cropPixels);
@@ -93,15 +111,9 @@ function writeSegment(target: PNG, segmentPng: PNG, outputPixels: RegionBounds):
   const height = Math.min(segmentPng.height, outputPixels.height, target.height - outputPixels.y);
 
   for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const targetIndex = ((outputPixels.y + y) * target.width + outputPixels.x + x) * 4;
-      const sourceIndex = (y * segmentPng.width + x) * 4;
-
-      target.data[targetIndex] = segmentPng.data[sourceIndex];
-      target.data[targetIndex + 1] = segmentPng.data[sourceIndex + 1];
-      target.data[targetIndex + 2] = segmentPng.data[sourceIndex + 2];
-      target.data[targetIndex + 3] = segmentPng.data[sourceIndex + 3];
-    }
+    const targetStart = ((outputPixels.y + y) * target.width + outputPixels.x) * 4;
+    const sourceStart = y * segmentPng.width * 4;
+    segmentPng.data.copy(target.data, targetStart, sourceStart, sourceStart + width * 4);
   }
 }
 

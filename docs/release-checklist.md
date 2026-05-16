@@ -29,6 +29,7 @@
 
 ## 验证
 
+- [ ] PR 或 `main` 推送触发的 `.github/workflows/ci.yml` 已通过，或本地已完成同等校验。
 - [ ] `npm run docs:check`
 - [ ] `npm run typecheck`
 - [ ] `npm run lint`
@@ -52,10 +53,11 @@
 - [ ] `announcements/releases.json` 包含 `release-vX.Y.Z`，并在 `allAnnouncement` 中可见。
 - [ ] `announcements/releases.json` 的 `allAnnouncement` 第一项是 `release-vX.Y.Z`。
 - [ ] 已确认“本版本新增向导”、“历史版本向导回顾”和“整体功能向导”是否需要更新；用户可感知的新入口、新流程、新配置或迁移提示应写入本版本新增向导，旧版本新增向导应保留供历史回顾使用。
+- [ ] 如果当前 `Unreleased` 含用户可见变化，已决定哪些变化进入 `src/renderer/src/guides.ts`；不得把未发布变化写入已发布版本的向导条目。
 - [ ] 已回看历史版本新增向导，确认旧版本条目仍可从“历史版本向导回顾”访问。
 - [ ] Git 工作区中没有误提交 `out/`、`release/`、`node_modules/` 或本地配置文件。
-- [ ] 发布统一走 GitHub Actions：推送 `vX.Y.Z` tag 触发 `.github/workflows/release-windows.yml`，不要在本机手动发布 GitHub Release。
-- [ ] `.github/workflows/release-windows.yml` 会运行 `npm run docs:check`、`typecheck`、`lint`、`test`、`security:check` 和 `npm run publish:win`。
+- [ ] 发布统一走 GitHub Actions：推送 `vX.Y.Z` tag 触发 `.github/workflows/release-windows.yml`，工作流会校验 tag 格式，不要在本机手动发布 GitHub Release。
+- [ ] `.github/workflows/release-windows.yml` 会运行 `npm run docs:check`、`typecheck`、`lint`、`test`、`security:check`、脚本语法检查和 `npm run publish:win`。
 - [ ] GitHub Actions 使用仓库自带 `GITHUB_TOKEN` 和兼容变量 `GH_TOKEN`，不需要 Personal Access Token。
 - [ ] Release body 由 `scripts/sync-release-notes.mjs` 从 `RELEASE_NOTES.md` 同步。
 - [ ] GitHub Actions 发布完成后，运行 `npm run dist` 同步本地 `release/`。

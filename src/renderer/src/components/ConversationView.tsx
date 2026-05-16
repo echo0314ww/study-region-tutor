@@ -64,7 +64,16 @@ export function ConversationView({
     };
   }, [updateScrollButton]);
 
+  const wasLoadingRef = useRef(false);
+
   useEffect(() => {
+    const list = listRef.current;
+    if (isLoading) {
+      list?.scrollTo({ top: list.scrollHeight });
+    } else if (wasLoadingRef.current && list) {
+      list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' });
+    }
+    wasLoadingRef.current = isLoading;
     updateScrollButton();
   }, [conversationTurns, progressText, isLoading, updateScrollButton]);
 
@@ -82,7 +91,7 @@ export function ConversationView({
           </section>
         ))}
         {isLoading && progressText && (
-          <section className="conversation-turn assistant">
+          <section className="conversation-turn assistant" aria-live="polite">
             <div className="conversation-role">处理过程</div>
             <AnswerRenderer text={progressText} />
           </section>

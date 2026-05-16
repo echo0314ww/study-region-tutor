@@ -57,7 +57,8 @@ export type SettingsView =
   | 'history'
   | 'providerGenerator'
   | 'promptTemplates'
-  | 'eval';
+  | 'eval'
+  | 'dashboard';
 export type GuideKind = 'product' | 'release' | 'history';
 
 export interface GuideStep {

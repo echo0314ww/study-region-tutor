@@ -63,7 +63,7 @@ git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin main vX.Y.Z
 ```
 
-推送 tag 会触发 `.github/workflows/release-windows.yml`。该工作流会运行文档检查、类型检查、Lint、测试、安全边界检查和 `npm run publish:win`，并用仓库自带 `GITHUB_TOKEN` 发布 GitHub Release。
+推送 tag 会触发 `.github/workflows/release-windows.yml`。该工作流会先校验 tag 必须是 `vX.Y.Z`，再运行文档检查、类型检查、Lint、测试、安全边界检查、脚本语法检查和 `npm run publish:win`，并用仓库自带 `GITHUB_TOKEN` 发布 GitHub Release。
 
 ## 发布后确认
 

@@ -23,6 +23,8 @@ export function OcrPreviewForm({
 }: OcrPreviewFormProps): JSX.Element {
   const ocrPreviewText = ocrPreview.recognizedText || '';
   const isOcrPreviewEmpty = !ocrPreviewText.trim();
+  const selectedCandidate = ocrPreview.candidates?.find((candidate) => candidate.id === ocrPreview.selectedCandidateId);
+  const hasUnsavedCandidateEdits = Boolean(selectedCandidate && selectedCandidate.text !== ocrPreviewText);
   const ocrPreviewIntro =
     ocrPreview.reason === 'image-fallback'
       ? '图片接口请求失败，已转为本地 OCR。请检查识别文本后发送讲解。'
@@ -54,11 +56,12 @@ export function OcrPreviewForm({
               title={candidate.text}
             >
               <strong>候选 {index + 1}</strong>
-              <span>{candidate.label} · {candidate.language} · {candidate.confidence}</span>
+              <span>{candidate.label} · {candidate.language} · {formatConfidence(candidate.confidence)}</span>
             </button>
           ))}
         </div>
       )}
+      {hasUnsavedCandidateEdits && <div className="ocr-preview-note">切换候选会替换当前已编辑文本。</div>}
       {error && <div className="ocr-preview-note danger">{error}</div>}
       {stoppedMessage && <div className="ocr-preview-note">{stoppedMessage}</div>}
       <label className="ocr-preview-editor">
@@ -88,4 +91,16 @@ export function OcrPreviewForm({
       </div>
     </form>
   );
+}
+
+function formatConfidence(confidence: number): string {
+  if (!Number.isFinite(confidence)) {
+    return '置信度未知';
+  }
+
+  const normalized = confidence > 1 ? confidence / 100 : confidence;
+  const percent = Math.max(0, Math.min(100, Math.round(normalized * 100)));
+  const level = percent >= 85 ? '高' : percent >= 60 ? '中' : '低';
+
+  return `${percent}% · ${level}`;
 }

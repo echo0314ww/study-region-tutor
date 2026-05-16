@@ -6,6 +6,7 @@ import {
   loadStudyItems,
   saveStudyItems,
   scheduleNextReview,
+  studyDashboardStats,
   studyLibraryStats,
   tagsFromText,
   updateStudyItemMetadata,
@@ -102,6 +103,30 @@ describe('study library', () => {
     });
 
     expect(loadStudyItems()).toEqual([]);
+  });
+
+  it('falls back to legacy history when the study library payload is corrupted', () => {
+    const values = new Map<string, string>();
+    values.set(STUDY_LIBRARY_STORAGE_KEY, '{');
+    values.set(
+      LOCAL_HISTORY_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: 'legacy-1',
+          title: 'legacy item',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-02T00:00:00.000Z',
+          turns: turns()
+        }
+      ])
+    );
+    installLocalStorage({
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value)
+    });
+
+    expect(loadStudyItems()).toHaveLength(1);
+    expect(loadStudyItems()[0]?.id).toBe('legacy-1');
   });
 
   it('upserts study items without persisting secrets from settings', () => {
@@ -217,5 +242,44 @@ describe('study library', () => {
 
   it('normalizes tag text', () => {
     expect(tagsFromText('数学, 导数，导数  复习')).toEqual(['数学', '导数', '复习']);
+  });
+
+  it('builds dashboard statistics from review and metadata fields', () => {
+    const reviewedAt = new Date('2026-05-15T00:00:00.000Z');
+    const baseItem = upsertStudyItem([], {
+      id: 'study-1',
+      appVersion: '1.2.0',
+      settings: DEFAULT_SETTINGS,
+      turns: turns('一道导数题')
+    })[0] as StudyItem;
+    const [item] = updateStudyItemMetadata([baseItem], baseItem.id, {
+      subject: 'math',
+      status: 'mastered',
+      wrongCount: 1,
+      lastReviewedAt: '2026-05-14T00:00:00.000Z',
+      metadata: {
+        subject: 'math',
+        topic: '导数',
+        questionType: '计算题',
+        difficulty: 'normal',
+        keyPoints: ['导数', '链式法则'],
+        mistakeTraps: ['符号错误'],
+        tags: ['数学'],
+        summary: '练习导数计算',
+        extractedAt: '2026-05-14T00:00:00.000Z'
+      }
+    });
+
+    const stats = studyDashboardStats([item], reviewedAt);
+
+    expect(stats.masteredRate).toBe(100);
+    expect(stats.reviewedLast7Days).toBe(1);
+    expect(stats.mistakes).toBe(1);
+    expect(stats.subjectCounts).toEqual([{ subject: 'math', count: 1 }]);
+    expect(stats.topKnowledgePoints).toEqual([
+      { label: '导数', count: 1 },
+      { label: '链式法则', count: 1 }
+    ]);
+    expect(stats.topMistakeTraps).toEqual([{ label: '符号错误', count: 1 }]);
   });
 });

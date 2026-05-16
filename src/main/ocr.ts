@@ -23,6 +23,7 @@ function workerForLanguage(language: OcrLanguage): CachedWorker {
   const cached = workerCache.get(language);
 
   if (cached) {
+    clearTimeout(cached.idleTimer);
     return cached;
   }
 
@@ -93,8 +94,14 @@ function withCachedWorker<T>(
     }
   };
   const result = entry.queue.catch(() => undefined).then(run);
+  const settled = result.catch(() => undefined);
 
-  entry.queue = result.catch(() => undefined);
+  entry.queue = settled;
+  void settled.then(() => {
+    if (entry.queue === settled) {
+      entry.queue = Promise.resolve();
+    }
+  });
   return result;
 }
 
@@ -263,8 +270,8 @@ function createEnhancedImages(
 
   const source = PNG.sync.read(imageBuffer);
   const longestSide = Math.max(source.width, source.height);
-  const scaleFactor = longestSide < 700 ? 3 : 2;
-  const scaled = scalePng(source, scaleFactor);
+  const scaleFactor = longestSide >= 1400 ? 1 : longestSide < 700 ? 3 : 2;
+  const scaled = scaleFactor > 1 ? scalePng(source, scaleFactor) : source;
   const grayValues = toGrayValues(scaled, 1.45);
   const threshold = otsuThreshold(grayValues);
   const contrastPng = pngFromGray(scaled, grayValues);

@@ -16,6 +16,7 @@ export type StudyItemStatus = 'new' | 'reviewing' | 'mastered';
 export type StudyDifficulty = 'easy' | 'normal' | 'hard';
 export type StudyReviewGrade = 'again' | 'hard' | 'good' | 'easy';
 export type StudyLibraryExportFormat = 'markdown' | 'anki-csv' | 'obsidian';
+export type ThemeSetting = 'light' | 'dark' | 'system';
 export type ShortcutAction =
   | 'start-capture'
   | 'cancel-capture'
@@ -43,6 +44,7 @@ export interface TutorSettings {
   providerId: string;
   model: string;
   language: TutorLanguage;
+  theme: ThemeSetting;
   reasoningOnly: boolean;
   apiMode: ApiModeSetting;
   apiBaseUrl: string;
@@ -320,6 +322,16 @@ export interface ExportStudyLibraryRequest {
   items: StudyLibraryExportItem[];
 }
 
+export type StudyBackupMergeStrategy = 'replace' | 'merge-prefer-imported' | 'merge-prefer-local';
+
+export interface StudyLibraryBackup {
+  version: 1;
+  exportedAt: string;
+  appVersion: string;
+  itemCount: number;
+  items: StudyLibraryExportItem[];
+}
+
 export interface PromptEvalVariant {
   id: string;
   providerId: string;
@@ -343,6 +355,7 @@ export interface PromptEvalRun {
 }
 
 export interface RunPromptEvalRequest {
+  requestId?: string;
   inputText: string;
   settings: TutorSettings;
   variants: PromptEvalVariant[];

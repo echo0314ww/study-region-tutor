@@ -1,17 +1,15 @@
 import type {
   ApiProviderOption,
   ModelListResult,
-  QuestionSessionTurn,
   ReasoningEffortSetting,
-  StudyDifficulty,
   StudyMetadata,
-  StudySubject,
   TutorSettings
 } from '../shared/types';
 import { throwIfAborted } from './cancel';
-import type { FollowUpContext, ModelAnswer } from './openaiClient';
+import type { ModelAnswer } from './openaiClient';
+import type { FollowUpContext } from './apiShared';
+import { metadataFromAnswer, buildLimitedFollowUpHistoryPrompt } from './apiShared';
 import {
-  buildFollowUpHistoryPrompt,
   buildFollowUpQuestionPrompt,
   buildStudyMetadataInstructions,
   buildStudyMetadataPrompt,
@@ -45,8 +43,6 @@ interface ProxyTokenSelection {
 const SAVED_PROXY_TOKEN_INVALID_MESSAGE = '代理访问 Token 已失效，请重新填写最新的 TUTOR_PROXY_TOKEN。';
 const ENTERED_PROXY_TOKEN_INVALID_MESSAGE = '代理访问 Token 验证失败，请检查后重新填写。';
 const ENV_PROXY_TOKEN_INVALID_MESSAGE = '环境变量 TUTOR_PROXY_TOKEN 验证失败，请检查当前启动环境。';
-const STUDY_SUBJECTS: StudySubject[] = ['general', 'math', 'english', 'physics', 'programming'];
-const STUDY_DIFFICULTIES: StudyDifficulty[] = ['easy', 'normal', 'hard'];
 
 function proxyBaseUrl(settings: TutorSettings): string {
   const baseUrl = (settings.proxyUrl.trim() || process.env.TUTOR_PROXY_URL?.trim() || '').replace(/\/+$/, '');
@@ -127,72 +123,10 @@ function reasoningEffort(settings: TutorSettings): ReasoningEffortSetting {
   return settings.reasoningEffort;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
 
-function safeMetadataString(value: unknown, maxLength: number): string {
-  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, maxLength) : '';
-}
-
-function safeMetadataList(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  for (const raw of value) {
-    const item = safeMetadataString(raw, 32);
-
-    if (!item || seen.has(item)) {
-      continue;
-    }
-
-    seen.add(item);
-    result.push(item);
-  }
-
-  return result.slice(0, 6);
-}
-
-function metadataFromAnswer(text: string): StudyMetadata {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  const source = fenced?.[1] || text;
-  const start = source.indexOf('{');
-  const end = source.lastIndexOf('}');
-
-  if (start < 0 || end <= start) {
-    throw new Error('结构化信息提取结果不是 JSON 对象。');
-  }
-
-  const parsed = JSON.parse(source.slice(start, end + 1)) as unknown;
-
-  if (!isRecord(parsed)) {
-    throw new Error('结构化信息提取结果不是 JSON 对象。');
-  }
-
-  const subject = STUDY_SUBJECTS.includes(parsed.subject as StudySubject) ? (parsed.subject as StudySubject) : 'general';
-  const difficulty = STUDY_DIFFICULTIES.includes(parsed.difficulty as StudyDifficulty)
-    ? (parsed.difficulty as StudyDifficulty)
-    : 'normal';
-
-  return {
-    subject,
-    difficulty,
-    topic: safeMetadataString(parsed.topic, 80),
-    questionType: safeMetadataString(parsed.questionType, 80),
-    keyPoints: safeMetadataList(parsed.keyPoints),
-    mistakeTraps: safeMetadataList(parsed.mistakeTraps),
-    tags: safeMetadataList(parsed.tags),
-    summary: safeMetadataString(parsed.summary, 240),
-    extractedAt: new Date().toISOString()
-  };
-}
-
-async function proxyJson<T>(settings: TutorSettings, path: string, body?: unknown): Promise<T> {
+async function proxyJson<T>(settings: TutorSettings, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const tokenSelection = requireProxyToken(settings);
+  const effectiveSignal = signal ?? AbortSignal.timeout(30_000);
   const response = await fetch(`${proxyBaseUrl(settings)}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
@@ -200,7 +134,8 @@ async function proxyJson<T>(settings: TutorSettings, path: string, body?: unknow
       Accept: 'application/json',
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
     },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: effectiveSignal
   });
   const text = await response.text();
   let data: ProxyEnvelope<T> | undefined;
@@ -234,33 +169,6 @@ export async function proxyListAvailableModels(settings: TutorSettings): Promise
   });
 }
 
-function limitContextText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) {
-    return text;
-  }
-
-  return `[前文较长，已保留末尾 ${maxLength} 个字符]\n${text.slice(-maxLength)}`;
-}
-
-function limitHistoryTurns(turns: QuestionSessionTurn[]): QuestionSessionTurn[] {
-  return turns.slice(-8).map((turn) => ({
-    role: turn.role,
-    content: limitContextText(turn.content, 6000)
-  }));
-}
-
-function buildLimitedFollowUpHistoryPrompt(
-  context: FollowUpContext,
-  question: string,
-  settings: TutorSettings
-): string {
-  return buildFollowUpHistoryPrompt(
-    limitContextText(context.problemContext, 18000),
-    limitHistoryTurns(context.turns),
-    question,
-    settings
-  );
-}
 
 function streamPayloadBase(settings: TutorSettings): Record<string, unknown> {
   const model = settings.model.trim();
@@ -378,32 +286,36 @@ async function proxyStream(
     }
   };
 
-  for (;;) {
-    throwIfAborted(signal);
-    const { done, value } = await reader.read();
+  try {
+    for (;;) {
+      throwIfAborted(signal);
+      const { done, value } = await reader.read();
 
-    if (done) {
-      break;
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let boundary = buffer.indexOf('\n\n');
+
+      while (boundary !== -1) {
+        processBlock(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf('\n\n');
+      }
     }
 
-    buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n');
-    let boundary = buffer.indexOf('\n\n');
+    const tail = decoder.decode().replace(/\r\n/g, '\n');
 
-    while (boundary !== -1) {
-      processBlock(buffer.slice(0, boundary));
-      buffer = buffer.slice(boundary + 2);
-      boundary = buffer.indexOf('\n\n');
+    if (tail) {
+      buffer += tail;
     }
-  }
 
-  const tail = decoder.decode();
-
-  if (tail) {
-    buffer = (buffer + tail).replace(/\r\n/g, '\n');
-  }
-
-  if (buffer.trim()) {
-    processBlock(buffer);
+    if (buffer.trim()) {
+      processBlock(buffer);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
   }
 
   return finalAnswer || { text: answerText };

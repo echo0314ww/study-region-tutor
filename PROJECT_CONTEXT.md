@@ -4,10 +4,10 @@
 
 ## 当前版本
 
-- 当前版本：`1.2.0`。
+- 当前版本：`1.3.0`。
 - GitHub 仓库：`echo0314ww/study-region-tutor`。
-- 最近发布提交：准备 `Release v1.2.0`。
-- 当前 Unreleased 改动：暂无；v1.2.0 已归档学习库复习队列、结构化知识点提取、学习库批量导出、模型/Prompt 评测、OCR 预处理和安全边界检查。
+- 最近发布提交：准备 `Release v1.3.0`。
+- 当前 Unreleased 改动：暂无；v1.3.0 已归档暗色模式、i18n 基础设施、错题统计仪表盘、学习数据备份恢复、学习库概览、SSRF/代理超时/脱敏安全加固、关键 IPC runtime 校验、答案渲染安全维护、无障碍改进、模型评测取消、CI/Dependabot 和发布工作流加固。v1.2.0 已归档学习库复习队列、结构化知识点提取、学习库批量导出、模型/Prompt 评测、OCR 预处理和安全边界检查。
 
 ## 项目定位
 
@@ -29,16 +29,24 @@
 - 结果面板支持对当前题标记复习反馈，学习库会记录复习次数、答对/答错次数、下次复习时间、难度和易错原因。
 - 设置页支持一键诊断、整体功能向导、本版本新增向导和历史版本向导回顾。
 - 设置页支持首次配置向导、代理管理面板、快捷键自定义、学习库/错题本、Provider 配置生成器、Prompt 模板和模型/Prompt 评测。
-- 学习库支持今日待复习、错题筛选、结构化知识点/题型/难度/关键点/易错点归类，以及 Markdown、Anki CSV、Obsidian 批量导出。
+- 学习库支持待处理/复习、错题筛选、结构化知识点/题型/难度/关键点/易错点归类，以及 Markdown、Anki CSV、Obsidian 当前筛选结果批量导出。
 - 一键诊断支持快速诊断和会实际请求文本讲解接口的深度测试。
 - 一键诊断和发布流程包含安全边界检查；`npm run security:check` 会检查持久化白名单、BrowserWindow 安全选项和导出隐私提示。
+- 答案渲染会转义普通 HTML 文本，KaTeX 渲染不信任公式源码中的危险链接协议，也不会保留辅助 annotation 中的原始 TeX。
 - 非敏感设置会保存到渲染层版本化 `localStorage`；API Key 和代理 Token 不进入普通 `localStorage`。
 - 支持本地直连和代理服务。
 - 支持 OpenAI-compatible、Gemini 原生和 Anthropic 原生 provider。
 - 支持多 provider、模型列表刷新、按 provider/model 动态显示思考程度。
 - 代理服务支持多 Token、限流、配置热更新、端口热切换和 ngrok 健康检查。
 - 公告系统支持版本更新公告、私人公告和按分类分组，公告不会自动弹出。
-- Renderer 有基础 CSP；BrowserWindow 保持 `contextIsolation: true`、`nodeIntegration: false`、`webSecurity: true`。
+- Renderer 有基础 CSP；BrowserWindow 保持 `contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`。
+- 支持暗色模式（亮色、暗色、跟随系统）；CSS 全面使用语义化变量，`[data-theme="dark"]` 覆写暗色值。
+- 已建立中英文 i18n 基础设施；当前语言设置主要控制回答/导出语言，界面文案尚需逐步接入 `useTranslation()`。
+- 错题统计仪表盘展示学科雷达图、知识点/易错点柱形图和统计卡片（纯 CSS + SVG 实现）。
+- 学习数据支持 JSON 备份导出和导入，导入时可选择替换、合并优先导入或合并优先本地三种策略。
+- 无障碍：焦点陷阱（公告/向导/配置向导面板）、`:focus-visible` 轮廓、`prefers-reduced-motion` 禁用动画、危险操作按钮样式区分。
+- SSRF 防护覆盖 IPv6 保留地址；代理上游请求有 120 秒超时；proxyClient 有 30 秒默认超时。
+- 提取 `apiShared.ts` 消除 openaiClient/proxyClient 元数据解析和上下文截断重复代码。
 
 ## 当前文档体系
 
@@ -64,8 +72,10 @@
 - 诊断报告、导出 Markdown、公告和日志不得输出敏感明文。
 - 涉及用户可见变化时，必须检查 `src/renderer/src/guides.ts`：本版本新增向导、历史版本向导回顾、整体功能向导。
 - 已发布版本的新增向导条目继续保留，不要删除。
+- 当前 Unreleased 用户可见变化不写入已发布版本向导；正式发布归档时再统一判断并补齐 `src/renderer/src/guides.ts`。
 - 发布统一走 GitHub Actions，不在本机手动发布 GitHub Release。
 - 发布工作流路径：`.github/workflows/release-windows.yml`。
+- Windows 发布工作流不保留手动发布入口，并会校验 tag；只有 `vX.Y.Z` 格式继续执行正式发布。
 - GitHub Actions 使用仓库自带 `GITHUB_TOKEN`；不需要 Personal Access Token。
 - GitHub Actions 发布成功后，本机再运行 `npm run dist` 同步 `release/`。
 

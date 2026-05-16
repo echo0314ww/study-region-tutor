@@ -64,12 +64,28 @@ export function hasSavedProxyToken(): boolean {
   return Boolean(getSavedProxyToken());
 }
 
-export function saveProxyToken(token: string): void {
+export function savedProxyTokenStorageStatus(): 'none' | 'encrypted' | 'encoded' | 'unavailable' {
+  const stored = readStoredToken();
+
+  if (!stored?.value) {
+    return 'none';
+  }
+
+  if (stored.encrypted) {
+    return safeStorage.isEncryptionAvailable() ? 'encrypted' : 'unavailable';
+  }
+
+  return 'encoded';
+}
+
+export type ProxyTokenSaveResult = 'encrypted' | 'encoded' | 'cleared';
+
+export function saveProxyToken(token: string): ProxyTokenSaveResult {
   const trimmed = token.trim();
 
   if (!trimmed) {
     clearSavedProxyToken();
-    return;
+    return 'cleared';
   }
 
   const encrypted = safeStorage.isEncryptionAvailable();
@@ -92,6 +108,8 @@ export function saveProxyToken(token: string): void {
     )}\n`,
     { encoding: 'utf8', mode: 0o600 }
   );
+
+  return encrypted ? 'encrypted' : 'encoded';
 }
 
 export function clearSavedProxyToken(): void {

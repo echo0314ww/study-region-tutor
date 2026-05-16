@@ -70,9 +70,9 @@ npm run validate
 Windows 正式发布统一走 GitHub Actions，不在本机手动发布 GitHub Release。
 
 - 发布工作流：`.github/workflows/release-windows.yml`。
-- 触发方式：推送 `vX.Y.Z` tag，或手动 `workflow_dispatch`。
+- 触发方式：推送 release tag；工作流会校验 tag 必须是 `vX.Y.Z`，不保留手动发布入口。
 - 权限：使用仓库自带 `GITHUB_TOKEN`，并把 `GH_TOKEN` 指向同一个 token 供 electron-builder 使用。
-- 构建命令：工作流执行 `npm ci`、`npm run docs:check`、`npm run typecheck`、`npm run lint`、`npm run test`、`npm run security:check`、`npm run publish:win`。
+- 构建命令：工作流执行 `npm ci`、`npm run docs:check`、`npm run typecheck`、`npm run lint`、`npm run test`、`npm run security:check`、脚本语法检查和 `npm run publish:win`。
 - Release 说明：tag 发布后，工作流运行 `scripts/sync-release-notes.mjs --tag <tag>`，从 `RELEASE_NOTES.md` 同步对应版本到 GitHub Release body。
 - 已有 Release 说明同步：`.github/workflows/sync-release-notes.yml` 会在 `RELEASE_NOTES.md` 或同步脚本变化后更新已有 Release。
 

@@ -12,6 +12,7 @@ export const IPC_CHANNELS = {
   getOverlayBounds: 'tutor:get-overlay-bounds',
   listModels: 'tutor:list-models',
   checkForUpdates: 'tutor:check-for-updates',
+  getUpdateStatus: 'tutor:get-update-status',
   downloadUpdate: 'tutor:download-update',
   installUpdate: 'tutor:install-update',
   updateStatus: 'tutor:update-status',
@@ -30,5 +31,7 @@ export const IPC_CHANNELS = {
   clearProxyToken: 'tutor:clear-proxy-token',
   setDebugMode: 'tutor:set-debug-mode',
   setMousePassthrough: 'tutor:set-mouse-passthrough',
-  setCaptureUiVisible: 'tutor:set-capture-ui-visible'
+  setCaptureUiVisible: 'tutor:set-capture-ui-visible',
+  exportStudyBackup: 'tutor:export-study-backup',
+  importStudyBackup: 'tutor:import-study-backup'
 } as const;

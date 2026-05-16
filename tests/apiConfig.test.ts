@@ -24,7 +24,8 @@ const baseSettings: TutorSettings = {
   ocrLanguage: 'chi_sim',
   ocrMathMode: true,
   ocrPreprocessMode: 'auto',
-  reasoningEffort: 'off'
+  reasoningEffort: 'off',
+  theme: 'system'
 };
 
 function sseResponse(chunks: string[]): Response {
@@ -446,13 +447,18 @@ describe('resolveApiConfig', () => {
     expect(defaults).not.toHaveProperty('proxyToken');
   });
 
-  it('rejects official OpenAI API hosts for this third-party mode', () => {
-    expect(() =>
+  it('allows openai.com-compatible hosts after warning instead of hard failing', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    expect(
       resolveApiConfig({
         ...baseSettings,
         apiBaseUrl: 'https://api.openai.com/v1'
-      })
-    ).toThrow('第三方');
+      }).baseUrl
+    ).toBe('https://api.openai.com/v1');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('openai.com'));
+
+    warnSpy.mockRestore();
   });
 
   it('extracts model ids from OpenAI-compatible model list shapes', () => {

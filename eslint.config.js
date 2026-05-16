@@ -12,6 +12,7 @@ export default [
     languageOptions: {
       globals: {
         AbortController: 'readonly',
+        AbortSignal: 'readonly',
         Buffer: 'readonly',
         TextDecoder: 'readonly',
         URL: 'readonly',

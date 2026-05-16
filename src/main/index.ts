@@ -1,34 +1,44 @@
-import { app, BrowserWindow, ipcMain, screen, type WebContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen, type WebContents } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import electronUpdater from 'electron-updater';
 import type { ProgressInfo, UpdateInfo } from 'electron-updater';
 import { join } from 'node:path';
 import { IPC_CHANNELS } from '../shared/ipc';
+import {
+  parseCancelRequest,
+  parseEndQuestionSessionRequest,
+  parseBooleanFlag,
+  parseExportConversationRequest,
+  parseExportStudyLibraryRequest,
+  parseExtractStudyMetadataRequest,
+  parseExplainRecognizedTextRequest,
+  parseExplainRequest,
+  parseFollowUpRequest,
+  parseOptionalSourceUrl,
+  parseOptionalTutorSettings,
+  parseProxyToken,
+  parseRecognizeRegionRequest,
+  parseRunDiagnosticsRequest,
+  parseRunPromptEvalRequest,
+  parseTutorSettings
+} from '../shared/validators';
 import type {
   AnnouncementEvent,
   ApiRuntimeDefaults,
-  CancelRequest,
-  EndQuestionSessionRequest,
-  ExportConversationRequest,
   ExportConversationResult,
-  ExportStudyLibraryRequest,
-  ExtractStudyMetadataRequest,
   ExtractStudyMetadataResult,
-  ExplainRecognizedTextRequest,
   ExplainRequest,
   ExplainRegionResult,
   ExplainResult,
-  FollowUpRequest,
   FollowUpResult,
   InputMode,
   ModelListResult,
   OcrPreviewReason,
   OcrPreviewResult,
-  RecognizeRegionRequest,
   RegionBounds,
-  RunDiagnosticsRequest,
   RunPromptEvalRequest,
   RunPromptEvalResult,
+  StudyLibraryBackup,
   TutorSettings,
   UpdateStatusEvent
 } from '../shared/types';
@@ -132,7 +142,7 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
       nodeIntegration: false,
       webSecurity: true,
       allowRunningInsecureContent: false
@@ -419,7 +429,7 @@ function extractStudyMetadataRequest(
     : extractStudyMetadataFromText(text, settings, signal);
 }
 
-async function runPromptEvalRequest(request: RunPromptEvalRequest): Promise<RunPromptEvalResult> {
+async function runPromptEvalRequest(request: RunPromptEvalRequest, signal: AbortSignal): Promise<RunPromptEvalResult> {
   const inputText = request.inputText.trim();
 
   if (!inputText) {
@@ -429,6 +439,10 @@ async function runPromptEvalRequest(request: RunPromptEvalRequest): Promise<RunP
   const runs: RunPromptEvalResult['runs'] = [];
 
   for (const variant of request.variants) {
+    if (signal.aborted) {
+      break;
+    }
+
     const startedAt = Date.now();
     const settings: TutorSettings = {
       ...request.settings,
@@ -440,8 +454,13 @@ async function runPromptEvalRequest(request: RunPromptEvalRequest): Promise<RunP
 
     try {
       const answer = isProxyMode(settings)
-        ? await proxyExplainRecognizedTextWithMetadata(inputText, settings)
-        : await explainRecognizedTextWithMetadata(inputText, settings);
+        ? await proxyExplainRecognizedTextWithMetadata(inputText, settings, signal)
+        : await explainRecognizedTextWithMetadata(inputText, settings, signal);
+
+      if (signal.aborted) {
+        break;
+      }
+
       const output = answer.text.trim();
 
       runs.push({
@@ -456,6 +475,10 @@ async function runPromptEvalRequest(request: RunPromptEvalRequest): Promise<RunP
         output
       });
     } catch (error) {
+      if (isOperationCanceled(error)) {
+        break;
+      }
+
       runs.push({
         id: variant.id,
         createdAt: new Date(startedAt).toISOString(),
@@ -565,9 +588,11 @@ function confirmedOcrUserContent(
 function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getApiDefaults, (): ApiRuntimeDefaults => runtimeApiDefaults());
 
-  ipcMain.handle(IPC_CHANNELS.listApiProviders, (_event, settings?: TutorSettings) =>
-    settings && isProxyMode(settings) ? proxyListApiProviders(settings) : listApiProviders()
-  );
+  ipcMain.handle(IPC_CHANNELS.listApiProviders, (_event, rawSettings?: unknown) => {
+    const settings = parseOptionalTutorSettings(rawSettings);
+
+    return settings && isProxyMode(settings) ? proxyListApiProviders(settings) : listApiProviders();
+  });
 
   ipcMain.handle(IPC_CHANNELS.getOverlayBounds, () => currentVirtualBounds());
 
@@ -582,7 +607,9 @@ function registerIpc(): void {
     app.quit();
   });
 
-  ipcMain.handle(IPC_CHANNELS.saveProxyToken, (_event, token: string): ApiRuntimeDefaults => {
+  ipcMain.handle(IPC_CHANNELS.saveProxyToken, (_event, rawToken: unknown): ApiRuntimeDefaults => {
+    const token = parseProxyToken(rawToken);
+
     saveProxyToken(token);
     return runtimeApiDefaults();
   });
@@ -592,17 +619,23 @@ function registerIpc(): void {
     return runtimeApiDefaults();
   });
 
-  ipcMain.handle(IPC_CHANNELS.setDebugMode, (_event, enabled: boolean) => {
+  ipcMain.handle(IPC_CHANNELS.setDebugMode, (_event, rawEnabled: unknown) => {
+    const enabled = parseBooleanFlag(rawEnabled, 'debugMode');
+
     setScreenshotDebugMode(Boolean(enabled));
   });
 
-  ipcMain.handle(IPC_CHANNELS.setMousePassthrough, (_event, ignored: boolean): void => {
-    setMousePassthrough(Boolean(ignored));
+  ipcMain.handle(IPC_CHANNELS.setMousePassthrough, (_event, rawIgnored: unknown): void => {
+    const ignored = parseBooleanFlag(rawIgnored, 'mousePassthrough');
+
+    setMousePassthrough(ignored);
   });
 
   ipcMain.handle(IPC_CHANNELS.checkForUpdates, async (): Promise<void> => {
     await checkForUpdates();
   });
+
+  ipcMain.handle(IPC_CHANNELS.getUpdateStatus, (): UpdateStatusEvent => latestUpdateStatus);
 
   ipcMain.handle(IPC_CHANNELS.downloadUpdate, async (): Promise<void> => {
     await downloadUpdate();
@@ -614,63 +647,146 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.getLatestAnnouncement, (_event, sourceUrl?: string): Promise<AnnouncementEvent> => {
+  ipcMain.handle(IPC_CHANNELS.getLatestAnnouncement, (_event, rawSourceUrl?: unknown): Promise<AnnouncementEvent> => {
+    const sourceUrl = parseOptionalSourceUrl(rawSourceUrl);
+
     return fetchLatestAnnouncement(sourceUrl);
   });
 
-  ipcMain.handle(IPC_CHANNELS.connectAnnouncements, (event, sourceUrl?: string): void => {
+  ipcMain.handle(IPC_CHANNELS.connectAnnouncements, (event, rawSourceUrl?: unknown): void => {
+    const sourceUrl = parseOptionalSourceUrl(rawSourceUrl);
+
     connectAnnouncementStream(sourceUrl, event.sender);
   });
 
-  ipcMain.handle(IPC_CHANNELS.checkProxyHealth, (_event, sourceUrl?: string) => {
+  ipcMain.handle(IPC_CHANNELS.checkProxyHealth, (_event, rawSourceUrl?: unknown) => {
+    const sourceUrl = parseOptionalSourceUrl(rawSourceUrl);
+
     return checkProxyHealth(sourceUrl);
   });
 
-  ipcMain.handle(IPC_CHANNELS.runDiagnostics, (_event, request: RunDiagnosticsRequest) => {
+  ipcMain.handle(IPC_CHANNELS.runDiagnostics, (_event, rawRequest: unknown) => {
+    const request = parseRunDiagnosticsRequest(rawRequest);
+
     return runDiagnostics(request, localEnvPath());
   });
 
   ipcMain.handle(
     IPC_CHANNELS.exportConversation,
-    (_event, request: ExportConversationRequest): Promise<ExportConversationResult> => {
+    (_event, rawRequest: unknown): Promise<ExportConversationResult> => {
+      const request = parseExportConversationRequest(rawRequest);
+
       return exportConversationMarkdown(mainWindow, request);
     }
   );
 
   ipcMain.handle(
     IPC_CHANNELS.exportStudyLibrary,
-    (_event, request: ExportStudyLibraryRequest): Promise<ExportConversationResult> => {
+    (_event, rawRequest: unknown): Promise<ExportConversationResult> => {
+      const request = parseExportStudyLibraryRequest(rawRequest);
+
       return exportStudyLibrary(mainWindow, request);
     }
   );
 
   ipcMain.handle(
-    IPC_CHANNELS.extractStudyMetadata,
-    async (_event, request: ExtractStudyMetadataRequest): Promise<ExtractStudyMetadataResult> => {
-      const controller = new AbortController();
-      return {
-        metadata: await extractStudyMetadataRequest(request.text, request.settings, controller.signal)
-      };
+    IPC_CHANNELS.exportStudyBackup,
+    async (_event, rawBackup: unknown): Promise<{ saved: boolean; path?: string }> => {
+      const backup = rawBackup as StudyLibraryBackup;
+
+      if (!backup || typeof backup !== 'object' || backup.version !== 1 || !Array.isArray(backup.items)) {
+        throw new Error('无效的备份数据格式。');
+      }
+
+      const result = await dialog.showSaveDialog(mainWindow!, {
+        title: '导出学习数据备份',
+        defaultPath: `study-backup-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { saved: false };
+      }
+
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(result.filePath, JSON.stringify(backup, null, 2), 'utf-8');
+
+      return { saved: true, path: result.filePath };
     }
   );
 
-  ipcMain.handle(IPC_CHANNELS.runPromptEval, (_event, request: RunPromptEvalRequest): Promise<RunPromptEvalResult> => {
-    return runPromptEvalRequest(request);
+  ipcMain.handle(
+    IPC_CHANNELS.importStudyBackup,
+    async (): Promise<{ imported: boolean; backup?: StudyLibraryBackup }> => {
+      const result = await dialog.showOpenDialog(mainWindow!, {
+        title: '导入学习数据备份',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+        properties: ['openFile']
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { imported: false };
+      }
+
+      const { readFile } = await import('node:fs/promises');
+      const content = await readFile(result.filePaths[0], 'utf-8');
+      const parsed = JSON.parse(content);
+
+      if (!parsed || typeof parsed !== 'object' || parsed.version !== 1 || !Array.isArray(parsed.items)) {
+        throw new Error('文件格式无效，不是有效的学习数据备份。');
+      }
+
+      return { imported: true, backup: parsed as StudyLibraryBackup };
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.extractStudyMetadata,
+    async (_event, rawRequest: unknown): Promise<ExtractStudyMetadataResult> => {
+      const request = parseExtractStudyMetadataRequest(rawRequest);
+      const requestId = `metadata:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+      const signal = beginCancelableRequest(requestId);
+
+      try {
+        return {
+          metadata: await extractStudyMetadataRequest(request.text, request.settings, signal)
+        };
+      } finally {
+        finishCancelableRequest(requestId);
+      }
+    }
+  );
+
+  ipcMain.handle(IPC_CHANNELS.runPromptEval, (_event, rawRequest: unknown): Promise<RunPromptEvalResult> => {
+    const request = parseRunPromptEvalRequest(rawRequest);
+    const requestId = request.requestId || `prompt-eval:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const signal = beginCancelableRequest(requestId);
+
+    return runPromptEvalRequest(request, signal).finally(() => {
+      finishCancelableRequest(requestId);
+    });
   });
 
-  ipcMain.handle(IPC_CHANNELS.listModels, (_event, settings: TutorSettings): Promise<ModelListResult> => {
+  ipcMain.handle(IPC_CHANNELS.listModels, (_event, rawSettings: unknown): Promise<ModelListResult> => {
+    const settings = parseTutorSettings(rawSettings);
+
     return isProxyMode(settings) ? proxyListAvailableModels(settings) : listAvailableModels(settings);
   });
 
-  ipcMain.handle(IPC_CHANNELS.cancelRequest, (_event, request: CancelRequest): void => {
+  ipcMain.handle(IPC_CHANNELS.cancelRequest, (_event, rawRequest: unknown): void => {
+    const request = parseCancelRequest(rawRequest);
+
     cancelActiveRequest(request.requestId);
   });
 
-  ipcMain.handle(IPC_CHANNELS.endQuestionSession, (_event, request: EndQuestionSessionRequest): void => {
+  ipcMain.handle(IPC_CHANNELS.endQuestionSession, (_event, rawRequest: unknown): void => {
+    const request = parseEndQuestionSessionRequest(rawRequest);
+
     endQuestionSession(request.sessionId);
   });
 
-  ipcMain.handle(IPC_CHANNELS.recognizeRegion, async (event, request: RecognizeRegionRequest): Promise<OcrPreviewResult> => {
+  ipcMain.handle(IPC_CHANNELS.recognizeRegion, async (event, rawRequest: unknown): Promise<OcrPreviewResult> => {
+    const request = parseRecognizeRegionRequest(rawRequest);
     const signal = beginCancelableRequest(request.requestId);
     const emitProgress = createProgressEmitter(event.sender, request.requestId);
 
@@ -691,7 +807,8 @@ function registerIpc(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.explainRecognizedText,
-    async (event, request: ExplainRecognizedTextRequest): Promise<ExplainResult> => {
+    async (event, rawRequest: unknown): Promise<ExplainResult> => {
+      const request = parseExplainRecognizedTextRequest(rawRequest);
       const signal = beginCancelableRequest(request.requestId);
       const emitProgress = createProgressEmitter(event.sender, request.requestId);
       const emitAnswerDelta = createAnswerDeltaEmitter(event.sender, request.requestId);
@@ -736,7 +853,8 @@ function registerIpc(): void {
     }
   );
 
-  ipcMain.handle(IPC_CHANNELS.askFollowUp, async (event, request: FollowUpRequest): Promise<FollowUpResult> => {
+  ipcMain.handle(IPC_CHANNELS.askFollowUp, async (event, rawRequest: unknown): Promise<FollowUpResult> => {
+    const request = parseFollowUpRequest(rawRequest);
     const signal = beginCancelableRequest(request.requestId);
     const emitProgress = createProgressEmitter(event.sender, request.requestId);
     const emitAnswerDelta = createAnswerDeltaEmitter(event.sender, request.requestId);
@@ -786,7 +904,8 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.explainRegion, async (event, request: ExplainRequest): Promise<ExplainRegionResult> => {
+  ipcMain.handle(IPC_CHANNELS.explainRegion, async (event, rawRequest: unknown): Promise<ExplainRegionResult> => {
+    const request = parseExplainRequest(rawRequest);
     const signal = beginCancelableRequest(request.requestId);
     const emitProgress = createProgressEmitter(event.sender, request.requestId);
     const emitAnswerDelta = createAnswerDeltaEmitter(event.sender, request.requestId);
@@ -878,6 +997,14 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
-  void disposeOcrWorkers();
+let isQuittingAfterOcrDispose = false;
+
+app.on('before-quit', (event) => {
+  if (isQuittingAfterOcrDispose) {
+    return;
+  }
+
+  event.preventDefault();
+  isQuittingAfterOcrDispose = true;
+  void disposeOcrWorkers().finally(() => app.quit());
 });

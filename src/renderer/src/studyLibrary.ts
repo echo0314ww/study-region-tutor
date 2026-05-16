@@ -1,4 +1,4 @@
-import type { TutorSettings } from '../../shared/types';
+import type { StudyBackupMergeStrategy, TutorSettings } from '../../shared/types';
 import {
   LOCAL_HISTORY_STORAGE_KEY,
   STUDY_LIBRARY_LIMIT,
@@ -236,29 +236,40 @@ function sanitizeStudyItem(raw: unknown): StudyItem | undefined {
   };
 }
 
-function loadItemsFromKey(key: string): StudyItem[] {
+function loadItemsFromKey(key: string): { exists: boolean; items: StudyItem[] } {
   const raw = localStorage.getItem(key);
 
   if (!raw) {
-    return [];
+    return { exists: false, items: [] };
   }
 
   const parsed = JSON.parse(raw);
 
-  return Array.isArray(parsed)
+  const items = Array.isArray(parsed)
     ? parsed
         .map(sanitizeStudyItem)
         .filter((item) => item !== undefined)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .slice(0, STUDY_LIBRARY_LIMIT)
     : [];
+
+  return { exists: true, items };
 }
 
 export function loadStudyItems(): StudyItem[] {
   try {
-    return localStorage.getItem(STUDY_LIBRARY_STORAGE_KEY) !== null
-      ? loadItemsFromKey(STUDY_LIBRARY_STORAGE_KEY)
-      : loadItemsFromKey(LOCAL_HISTORY_STORAGE_KEY);
+    const studyLibrary = loadItemsFromKey(STUDY_LIBRARY_STORAGE_KEY);
+
+    if (studyLibrary.exists) {
+      return studyLibrary.items;
+    }
+  } catch {
+    // Fall back to the legacy history key instead of showing an empty library
+    // when the newer study-library payload is corrupted.
+  }
+
+  try {
+    return loadItemsFromKey(LOCAL_HISTORY_STORAGE_KEY).items;
   } catch {
     return [];
   }
@@ -437,8 +448,79 @@ export function studyLibraryStats(items: StudyItem[], now = new Date()): {
   };
 }
 
+export interface StudyDashboardStats {
+  total: number;
+  due: number;
+  mistakes: number;
+  masteredRate: number;
+  reviewedLast7Days: number;
+  subjectCounts: Array<{ subject: StudySubject; count: number }>;
+  topKnowledgePoints: Array<{ label: string; count: number }>;
+  topMistakeTraps: Array<{ label: string; count: number }>;
+}
+
+function incrementCount(map: Map<string, number>, value: string): void {
+  const label = value.trim();
+
+  if (!label) {
+    return;
+  }
+
+  map.set(label, (map.get(label) || 0) + 1);
+}
+
+function topCounts(map: Map<string, number>, limit: number): Array<{ label: string; count: number }> {
+  return [...map.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([label, count]) => ({ label, count }));
+}
+
+export function studyDashboardStats(items: StudyItem[], now = new Date()): StudyDashboardStats {
+  const baseStats = studyLibraryStats(items, now);
+  const sevenDaysAgo = new Date(now);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const subjectCounts = STUDY_SUBJECTS.map((subject) => ({
+    subject,
+    count: items.filter((item) => item.subject === subject).length
+  })).filter((item) => item.count > 0);
+  const keyPointCounts = new Map<string, number>();
+  const mistakeTrapCounts = new Map<string, number>();
+
+  for (const item of items) {
+    for (const point of item.metadata?.keyPoints || []) {
+      incrementCount(keyPointCounts, point);
+    }
+
+    for (const trap of item.metadata?.mistakeTraps || []) {
+      incrementCount(mistakeTrapCounts, trap);
+    }
+  }
+
+  return {
+    total: baseStats.total,
+    due: baseStats.due,
+    mistakes: baseStats.mistakes,
+    masteredRate: baseStats.total > 0 ? Math.round((baseStats.mastered / baseStats.total) * 100) : 0,
+    reviewedLast7Days: items.filter((item) => {
+      const reviewedAt = new Date(item.lastReviewedAt);
+
+      return !Number.isNaN(reviewedAt.getTime()) && reviewedAt >= sevenDaysAgo && reviewedAt <= now;
+    }).length,
+    subjectCounts,
+    topKnowledgePoints: topCounts(keyPointCounts, 5),
+    topMistakeTraps: topCounts(mistakeTrapCounts, 5)
+  };
+}
+
+const searchTextCache = new WeakMap<StudyItem, string>();
+
 function searchableText(item: StudyItem): string {
-  return [
+  const cached = searchTextCache.get(item);
+  if (cached !== undefined) return cached;
+
+  const text = [
     item.title,
     item.model,
     item.providerId,
@@ -456,6 +538,9 @@ function searchableText(item: StudyItem): string {
   ]
     .join('\n')
     .toLowerCase();
+
+  searchTextCache.set(item, text);
+  return text;
 }
 
 export function filterStudyItems(items: StudyItem[], filter: StudyItemFilter): StudyItem[] {
@@ -484,4 +569,37 @@ export function filterStudyItems(items: StudyItem[], filter: StudyItemFilter): S
 
     return !query || searchableText(item).includes(query);
   });
+}
+
+export function mergeStudyItems(
+  local: StudyItem[],
+  imported: StudyItem[],
+  strategy: StudyBackupMergeStrategy
+): StudyItem[] {
+  if (strategy === 'replace') {
+    return imported.slice(0, STUDY_LIBRARY_LIMIT);
+  }
+
+  const localMap = new Map(local.map((item) => [item.id, item]));
+  const importedMap = new Map(imported.map((item) => [item.id, item]));
+  const merged = new Map<string, StudyItem>();
+
+  for (const [id, item] of localMap) {
+    merged.set(id, item);
+  }
+
+  for (const [id, item] of importedMap) {
+    const existing = merged.get(id);
+
+    if (!existing) {
+      merged.set(id, item);
+    } else if (strategy === 'merge-prefer-imported') {
+      merged.set(id, item);
+    }
+    // 'merge-prefer-local': keep the existing local item
+  }
+
+  return [...merged.values()]
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, STUDY_LIBRARY_LIMIT);
 }

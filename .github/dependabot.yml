@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      electron-tooling:
+        patterns:
+          - electron
+          - electron-*
+          - electron-vite
+          - electron-builder
+          - electron-updater
+      test-and-build:
+        patterns:
+          - vite
+          - vitest
+          - typescript
+          - "@vitejs/*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

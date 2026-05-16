@@ -18,7 +18,8 @@ describe('buildTutorInstructions', () => {
       ocrLanguage: 'chi_sim',
       ocrMathMode: true,
       ocrPreprocessMode: 'auto',
-      reasoningEffort: 'off'
+      reasoningEffort: 'off',
+      theme: 'system'
     });
 
     expect(prompt).toContain('学习辅导助手');
@@ -42,7 +43,8 @@ describe('buildTutorInstructions', () => {
       ocrLanguage: 'chi_sim',
       ocrMathMode: true,
       ocrPreprocessMode: 'auto',
-      reasoningEffort: 'off'
+      reasoningEffort: 'off',
+      theme: 'system'
     });
 
     expect(prompt).toContain('只讲思路');

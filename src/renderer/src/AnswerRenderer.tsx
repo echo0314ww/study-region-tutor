@@ -89,15 +89,25 @@ function renderInline(text: string): JSX.Element[] {
 
 function renderKatex(source: string, displayMode: boolean): string | undefined {
   try {
-    return katex.renderToString(cleanLatexSource(source), {
+    const rendered = katex.renderToString(cleanLatexSource(source), {
       displayMode,
       throwOnError: false,
       strict: 'ignore',
       trust: false
     });
+
+    return sanitizeKatexHtml(rendered);
   } catch {
     return undefined;
   }
+}
+
+function sanitizeKatexHtml(html: string): string {
+  return html.replace(/<annotation\b[^>]*>[\s\S]*?<\/annotation>/gi, '');
+}
+
+function mathTitle(source: string): string {
+  return /(?:javascript|vbscript|data)\s*:/i.test(source) ? 'formula' : source;
 }
 
 function InlineMath({ source }: { source: string }): JSX.Element {
@@ -109,7 +119,7 @@ function InlineMath({ source }: { source: string }): JSX.Element {
       <span
         className="inline-math-rendered"
         dangerouslySetInnerHTML={{ __html: rendered }}
-        title={cleanSource}
+        title={mathTitle(cleanSource)}
       />
     );
   }
@@ -117,7 +127,7 @@ function InlineMath({ source }: { source: string }): JSX.Element {
   const readable = latexToReadable(cleanSource);
 
   return (
-    <span className="inline-math" title={cleanSource}>
+    <span className="inline-math" title={mathTitle(cleanSource)}>
       {readable || cleanSource}
     </span>
   );
@@ -131,7 +141,7 @@ function renderMathBlock(block: Extract<AnswerBlock, { type: 'math' }>, index: n
   return (
     <figure className="math-block" key={`math-${index}`}>
       {rendered ? (
-        <div className="math-rendered" dangerouslySetInnerHTML={{ __html: rendered }} title={source} />
+        <div className="math-rendered" dangerouslySetInnerHTML={{ __html: rendered }} title={mathTitle(source)} />
       ) : (
         <div className="math-fallback">
           <div className="math-readable primary">{readable || source}</div>

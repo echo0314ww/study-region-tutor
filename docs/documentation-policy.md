@@ -33,6 +33,14 @@
 
 发布前必须确认这四处没有互相矛盾。
 
+## Unreleased 用户可见变化
+
+不进行版本发布时，不要把 Unreleased 变化写入已发布版本的 `releaseGuidesByVersion` 条目，避免把未发布能力伪装成旧版本新增功能。
+
+如果 Unreleased 包含用户可见变化，必须先记录在 `CHANGELOG.md`、`RELEASE_NOTES.md`、`PROJECT_CONTEXT.md` 或实施记录中。正式发布归档时，再统一判断哪些变化需要写入 `src/renderer/src/guides.ts` 的本版本新增向导，并确认历史版本向导仍保留旧条目。
+
+发布前检查清单必须保留这项检查；如果无需更新应用内向导，应在实施记录、提交说明或 `PROJECT_CONTEXT.md` 中写明原因。
+
 ## dev-log 模板
 
 新增实施记录时，优先使用 `docs/templates/dev-log-template.md`。dev-log 只记录过程和决策背景；如果内容会长期影响维护，应同步更新专题文档或 ADR。

@@ -106,6 +106,7 @@ export function ResultPanel({
     <aside
       data-interactive="true"
       className="result-panel"
+      role="region"
       aria-label="result"
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
@@ -120,7 +121,7 @@ export function ResultPanel({
         className="panel-header result-panel-header"
         onPointerDown={(event) => onPanelPointerDown(event, 'move')}
       >
-        <div className={`status ${error ? 'danger' : ''}`}>
+        <div className={`status ${error ? 'danger' : ''}`} aria-live="polite">
           {status.icon}
           <span>{status.text}</span>
         </div>

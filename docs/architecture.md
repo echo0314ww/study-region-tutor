@@ -8,9 +8,9 @@ Study Region Tutor 是 Electron + React + TypeScript 桌面应用，用于学习
 
 ## 目录职责
 
-- `src/main/`：Electron 主进程，负责窗口、截图裁剪、配置读取、API 请求、诊断、导出文件和自动更新。
+- `src/main/`：Electron 主进程，负责窗口、截图裁剪、配置读取、API 请求、诊断、导出文件、学习数据备份/恢复和自动更新。
 - `src/preload/`：安全暴露给渲染层的 IPC API。
-- `src/renderer/`：React 渲染层，负责工具栏、截图状态、结果面板、设置面板、公告、设置向导和用户交互。
+- `src/renderer/`：React 渲染层，负责工具栏、截图状态、结果面板、设置面板、公告、设置向导、暗色模式、国际化、错题仪表盘和用户交互。
 - `src/shared/`：主进程、preload、渲染层共享的类型、IPC 名称和纯函数。
 - `server/`：本地代理、公告服务、API 转发和 ngrok 托管脚本。
 - `announcements/`：版本更新公告和私人公告数据。
@@ -18,7 +18,8 @@ Study Region Tutor 是 Electron + React + TypeScript 桌面应用，用于学习
 - `docs/`：架构说明、发布清单和实施记录。
 - `docs/decisions/`：长期架构、发布、安全和流程决策记录。
 - `docs/templates/`：实施记录、发布检查、ADR 和用户可见变化模板。
-- `.github/workflows/`：GitHub Actions 工作流，负责 Windows 发布和 Release Notes 同步。
+- `.github/workflows/`：GitHub Actions 工作流，负责 PR/主分支验证、Windows 发布和 Release Notes 同步。
+- `.github/dependabot.yml`：Dependabot 配置，按周检查 npm 和 GitHub Actions 依赖更新。
 - `.editorconfig` / `.gitattributes`：约束编辑器格式和 Git 换行符归一化。
 
 ## 核心流程
@@ -61,17 +62,19 @@ API 代理接口需要 Token：
 
 ## 学习库、评测与导出
 
-学习库数据保存在渲染层版本化 `localStorage` 中，只包含文字会话、非敏感设置摘要、复习状态和结构化学习信息。学习项包含复习次数、答对/答错次数、下次复习时间、难度、易错原因、学科、标签和可选 metadata。
+学习库数据保存在渲染层版本化 `localStorage` 中，只包含文字会话、非敏感设置摘要、复习状态和结构化学习信息。学习项包含复习次数、答对/答错次数、下次复习时间、难度、易错原因、学科、标签和可选 metadata。新学习库存储不存在时会读取旧版本地历史；如果新存储损坏，也会回退旧历史，避免直接显示空学习库。
 
 结构化信息提取通过主进程或代理服务复用当前 provider 文本请求链路完成。渲染层只发送当前题目的文字会话；模型返回 JSON 后会经过白名单字段解析、长度限制和标签去重，解析失败不会影响原始学习记录。
 
-模型 / Prompt 评测面板复用 OCR 文本讲解请求链路，用同一段题目文本对比多个模型和 Prompt 模板，并把耗时、输出长度、成功/失败、输出内容和用户评分保存在本地评测历史中。
+模型 / Prompt 评测面板复用 OCR 文本讲解请求链路，用同一段题目文本对比多个模型和 Prompt 模板，并把耗时、输出长度、成功/失败、输出内容和用户评分保存在本地评测历史中。前端一次最多提交 20 组评测，并通过 `cancelRequest` 取消正在运行的评测；取消时保留已经完成的结果。
 
 答案导出和学习库批量导出均由 `src/shared/exportConversation.ts` 生成内容，主进程只负责保存文件。学习库批量导出支持单文件 Markdown、Anki CSV 和 Obsidian 多文件 Markdown，仍不包含截图、API Key、代理 Token 或代理服务地址。
 
 ## IPC 边界
 
 渲染层不直接读取文件系统、环境变量或 API Key。需要主进程能力时，通过 `src/shared/ipc.ts` 中定义的 IPC 通道和 `src/preload/index.ts` 暴露的受控 API 完成。
+
+关键 IPC 请求会先经过 `src/shared/validators.ts` 的 runtime 校验，再进入主进程业务逻辑。当前已覆盖截图讲解、区域 OCR、OCR 文本讲解、追问、模型列表、诊断、结构化学习信息提取、模型 / Prompt 评测、取消请求、结束本题、代理 Token 保存、公告/代理 URL、单题导出和学习库批量导出，校验内容包括必填字段、枚举值、URL 协议、区域尺寸、字符串长度和数组长度。
 
 当前主进程能力包括：
 
@@ -82,7 +85,37 @@ API 代理接口需要 Token：
 - 答案复制、单题 Markdown 导出和学习库批量导出。
 - 结构化学习信息提取。
 - 模型 / Prompt 对比评测。
+- 学习数据备份导出（JSON 文件保存对话框）和备份导入（JSON 文件打开对话框 + 格式校验）。
 - 自动更新。
+
+## 暗色模式与国际化
+
+暗色模式通过 `src/renderer/src/useTheme.ts` hook 实现，监听 `settings.theme`（`'light' | 'dark' | 'system'`）和 `prefers-color-scheme` 媒体查询，设置 `document.documentElement.dataset.theme`。CSS 全面使用语义化变量（`--color-bg-*`、`--color-text-*`、`--color-btn-*` 等），`[data-theme="dark"]` 覆写暗色值。
+
+国际化基础设施位于 `src/renderer/src/i18n/`：`LocaleContext` 提供当前语言，`useTranslation()` hook 返回 `t(key, params?)` 函数，支持 `{param}` 插值。翻译文件位于 `zh-CN.ts` 和 `en.ts`，定义约 160 个消息键。`App.tsx` 用 `<LocaleContext.Provider value={settings.language}>` 包裹整个应用。当前语言设置主要控制模型回答和导出语言；界面组件还没有全面接入 `useTranslation()`，后续替换 UI 文案时应复用现有消息键。
+
+## 错题统计仪表盘
+
+`src/renderer/src/components/DashboardPanel.tsx` 提供统计可视化，纯 CSS + SVG 实现（无外部图表库）：
+
+- 统计卡片：总数、待复习、错题数、掌握率。
+- 学科雷达图：SVG polygon，按学科分布绘制。
+- 知识点/易错点柱形图：CSS 水平柱形图，按频次排序。
+
+数据来源为 `studyLibrary.ts` 的 `studyDashboardStats()` 函数。
+
+## 学习数据备份与恢复
+
+备份格式定义在 `src/shared/types.ts` 的 `StudyLibraryBackup` 接口，版本号固定为 `1`。
+
+IPC 通道：
+- `tutor:export-study-backup`：接收 `StudyLibraryBackup` 对象，通过 `dialog.showSaveDialog` 保存 JSON 文件。
+- `tutor:import-study-backup`：通过 `dialog.showOpenDialog` 选择 JSON 文件，校验格式后返回 `StudyLibraryBackup`。
+
+渲染层 `studyLibrary.ts` 提供 `mergeStudyItems(local, imported, strategy)` 函数，支持三种合并策略：
+- `replace`：用导入数据完全替换本地。
+- `merge-prefer-imported`：按 ID 合并，冲突时保留导入数据。
+- `merge-prefer-local`：按 ID 合并，冲突时保留本地数据。
 
 ## 隐私与安全约定
 
@@ -91,15 +124,17 @@ API 代理接口需要 Token：
 - 渲染层 `localStorage` 只保存非敏感设置，例如连接模式、模型名、代理地址和 OCR 选项；API Key 和代理 Token 不进入普通 `localStorage`。
 - 代理 Token 可以保存在用户本机主进程安全存储路径中，但不会写入导出 Markdown。
 - 诊断报告必须脱敏，不能输出 API Key、代理 Token、ngrok Token 或完整敏感请求头；诊断中包含安全边界检查项。
+- 答案渲染不信任模型输出中的 HTML 或公式源码。普通文本由 React 转义；KaTeX 使用 `trust: false`，并移除辅助 annotation 中的原始 TeX，遇到 `javascript:`、`data:`、`vbscript:` 等危险协议时不会把原始公式放入 tooltip。
 - `npm run security:check` 检查渲染层持久化白名单、BrowserWindow 安全选项和导出隐私边界，GitHub Actions 发布流程也会运行该检查。
-- Renderer HTML 带有基础 CSP；BrowserWindow 保持 `contextIsolation: true`、`nodeIntegration: false` 和 `webSecurity: true`。`sandbox` 仍为 `false`，后续若要启用需要先验证当前 preload/IPC 打包方式。
+- Renderer HTML 带有基础 CSP；BrowserWindow 保持 `contextIsolation: true`、`sandbox: true`、`nodeIntegration: false` 和 `webSecurity: true`，preload 只暴露受控 IPC API。
 - 文档和公告不得包含真实密钥、Token 或个人账号凭据。
 
 ## 发布链路
 
 Windows 正式发布通过 GitHub Actions 完成，不在本机手动发布 GitHub Release。
 
-- `.github/workflows/release-windows.yml`：推送 `vX.Y.Z` tag 或手动 `workflow_dispatch` 时运行，执行依赖安装、文档检查、类型检查、Lint、测试、安全边界检查和 `npm run publish:win`。
+- `.github/workflows/ci.yml`：PR 和 `main` 推送时运行文档检查、类型检查、Lint、测试、安全边界检查和构建。
+- `.github/workflows/release-windows.yml`：推送 release tag 时运行，并先校验 tag 必须是 `vX.Y.Z`；通过后执行依赖安装、文档检查、类型检查、Lint、测试、安全边界检查、脚本语法检查和 `npm run publish:win`。
 - `.github/workflows/sync-release-notes.yml`：当 `RELEASE_NOTES.md`、同步脚本或工作流变化时，把 `RELEASE_NOTES.md` 中的版本说明同步到已有 GitHub Release。
 - `scripts/sync-release-notes.mjs`：从 `RELEASE_NOTES.md` 读取对应 tag 的说明，并写入 GitHub Release body。
 - `npm run dist`：只用于 GitHub Actions 发布成功后同步本地 `release/` 产物。

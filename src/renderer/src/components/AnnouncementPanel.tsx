@@ -1,6 +1,8 @@
 import { Bell, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { useMemo } from 'react';
 import type { Announcement } from '../../../shared/types';
 import { AnswerRenderer } from '../AnswerRenderer';
+import { useFocusTrap } from '../useFocusTrap';
 import { announcementCategory, announcementMetaText, isReleaseAnnouncement } from '../uiUtils';
 
 export interface AnnouncementPanelProps {
@@ -26,22 +28,31 @@ export function AnnouncementPanel({
   onPointerEnter,
   onPointerLeave
 }: AnnouncementPanelProps): JSX.Element {
-  const groupedAnnouncements = announcements.reduce<Array<{ category: string; items: Announcement[] }>>((groups, item) => {
-    const category = announcementCategory(item);
-    const group = groups.find((entry) => entry.category === category);
+  const trapRef = useFocusTrap<HTMLElement>();
 
-    if (group) {
-      group.items.push(item);
-    } else {
-      groups.push({ category, items: [item] });
-    }
+  const groupedAnnouncements = useMemo(
+    () =>
+      announcements.reduce<Array<{ category: string; items: Announcement[] }>>((groups, item) => {
+        const category = announcementCategory(item);
+        const group = groups.find((entry) => entry.category === category);
 
-    return groups;
-  }, []);
+        if (group) {
+          group.items.push(item);
+        } else {
+          groups.push({ category, items: [item] });
+        }
+
+        return groups;
+      }, []),
+    [announcements]
+  );
 
   return (
     <aside
+      ref={trapRef}
       className="announcement-panel"
+      role="dialog"
+      aria-modal="true"
       aria-label="announcement"
       data-interactive="true"
       onPointerEnter={onPointerEnter}

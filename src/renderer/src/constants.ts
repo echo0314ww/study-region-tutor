@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS: TutorSettings = {
   providerId: '',
   model: '',
   language: 'zh-CN',
+  theme: 'system',
   reasoningOnly: false,
   apiMode: 'env',
   apiBaseUrl: '',

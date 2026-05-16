@@ -49,6 +49,30 @@ describe('api protocol helpers', () => {
         'claude-opus-4-6'
       )
     ).toBe('https://api.anthropic.com/v1/messages');
+    expect(
+      endpointForProvider(
+        {
+          baseUrl: 'https://api.anthropic.com/v1/messages/',
+          apiMode: 'chat-completions',
+          apiProviderType: 'anthropic'
+        },
+        'claude-opus-4-6'
+      )
+    ).toBe('https://api.anthropic.com/v1/messages');
+  });
+
+  it('rejects unsafe Gemini model path characters', () => {
+    expect(() =>
+      endpointForProvider(
+        {
+          baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+          apiMode: 'chat-completions',
+          apiProviderType: 'gemini'
+        },
+        '../models/gemini?alt=json',
+        true
+      )
+    ).toThrow(/Invalid Gemini model name/);
   });
 
   it('builds model endpoint candidates from base urls', () => {

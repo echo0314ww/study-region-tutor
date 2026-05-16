@@ -12,9 +12,20 @@ import {
   proxyListApiProviders,
   proxyListAvailableModels
 } from './proxyClient';
+import { savedProxyTokenStorageStatus } from './proxyTokenStore';
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return redactSensitiveText(error instanceof Error ? error.message : String(error));
+}
+
+function redactSensitiveText(text: string): string {
+  return text
+    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/(x-api-key\s*:\s*)\S+/gi, '$1[redacted]')
+    .replace(/(x-goog-api-key\s*:\s*)\S+/gi, '$1[redacted]')
+    .replace(/sk-[A-Za-z0-9_-]{20,}/g, '[redacted-api-key]')
+    .replace(/([?&](?:api[_-]?key|token|access[_-]?token|auth|authorization)=)[^&\s]+/gi, '$1[redacted]')
+    .replace(/\b(token=)[^&\s]+/gi, '$1[redacted]');
 }
 
 function step(step: DiagnosticStep): DiagnosticStep {
@@ -46,6 +57,16 @@ function selectedModelStep(settings: TutorSettings): DiagnosticStep {
 }
 
 function securityBoundarySteps(settings: TutorSettings): DiagnosticStep[] {
+  const proxyTokenStatus = savedProxyTokenStorageStatus();
+  const proxyTokenStorageSummary =
+    proxyTokenStatus === 'encrypted'
+      ? '已保存的代理 Token 使用 Electron safeStorage 加密。'
+      : proxyTokenStatus === 'encoded'
+        ? '已保存的代理 Token 仅使用本地编码保存，因为当前系统不可用 safeStorage 加密。'
+        : proxyTokenStatus === 'unavailable'
+          ? '已保存的代理 Token 标记为加密，但当前系统不可用 safeStorage 解密。'
+          : '当前没有保存代理 Token。';
+
   return [
     step({
       id: 'security-sensitive-fields',
@@ -63,6 +84,24 @@ function securityBoundarySteps(settings: TutorSettings): DiagnosticStep[] {
       status: 'pass',
       summary: '渲染层只持久化连接模式、模型、OCR、快捷键和 Prompt 偏好等非敏感设置。',
       solution: '如果后续新增设置项，必须继续把 API Key、代理 Token 和服务端 Token 留在主进程或代理服务端。'
+    }),
+    step({
+      id: 'security-proxy-token-storage',
+      title: '代理 Token 本机保存',
+      status: proxyTokenStatus === 'encoded' || proxyTokenStatus === 'unavailable' ? 'warn' : 'pass',
+      summary: proxyTokenStorageSummary,
+      cause:
+        proxyTokenStatus === 'encoded'
+          ? '当前系统没有可用的 safeStorage 加密能力，应用只能把代理 Token 以本地编码形式保存在主进程用户数据目录。'
+          : proxyTokenStatus === 'unavailable'
+            ? '保存时可用的系统加密能力当前不可用，应用不会返回旧 Token 明文。'
+            : undefined,
+      solution:
+        proxyTokenStatus === 'encoded'
+          ? '如需更强保护，可在系统密钥链或凭据管理可用的环境中重新保存 Token；也可以清除已保存 Token，改为每次手动输入。'
+          : proxyTokenStatus === 'unavailable'
+            ? '请重新填写代理 Token，或清除已保存 Token 后再连接代理服务。'
+            : undefined
     })
   ];
 }
@@ -199,7 +238,7 @@ async function diagnoseProxy(settings: TutorSettings, deepCheck: boolean): Promi
         ? `providerCount=${health.providerCount ?? 'unknown'}, tokenCount=${health.tokenCount ?? 'unknown'}, rateLimitEnabled=${String(
             health.rateLimitEnabled ?? false
           )}`
-        : health.message
+        : errorText(health.message || '')
     })
   );
 

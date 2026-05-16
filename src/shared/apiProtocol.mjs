@@ -3,7 +3,13 @@ function encodePathSegment(value) {
 }
 
 function geminiModelPath(model) {
-  return encodePathSegment(String(model || '').trim().replace(/^models\//, ''));
+  const normalized = String(model || '').trim().replace(/^models\//, '');
+
+  if (!/^[A-Za-z0-9._:-]+$/.test(normalized)) {
+    throw new Error('Invalid Gemini model name.');
+  }
+
+  return encodePathSegment(normalized);
 }
 
 export function endpointForProvider(provider, model = '', stream = false) {
@@ -14,7 +20,9 @@ export function endpointForProvider(provider, model = '', stream = false) {
   }
 
   if (provider.apiProviderType === 'anthropic') {
-    return provider.baseUrl.endsWith('/messages') ? provider.baseUrl : `${provider.baseUrl}/messages`;
+    return provider.baseUrl.replace(/\/+$/, '').endsWith('/messages')
+      ? provider.baseUrl.replace(/\/+$/, '')
+      : `${provider.baseUrl.replace(/\/+$/, '')}/messages`;
   }
 
   if (provider.apiMode === 'responses') {

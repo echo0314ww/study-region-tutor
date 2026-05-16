@@ -12,7 +12,7 @@ import {
   X
 } from 'lucide-react';
 import type { PointerEvent, RefObject } from 'react';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import type {
   ApiConnectionMode,
   ApiModeSetting,
@@ -25,6 +25,7 @@ import type {
   OcrPreprocessMode,
   ReasoningEffortSetting,
   StudyLibraryExportFormat,
+  ThemeSetting,
   TutorLanguage,
   TutorSettings,
   UpdateStatusEvent
@@ -47,6 +48,7 @@ import { HistoryPanel } from './HistoryPanel';
 import { ProviderConfigGenerator } from './ProviderConfigGenerator';
 import { PromptTemplatePanel } from './PromptTemplatePanel';
 import { EvalPanel } from './EvalPanel';
+import { DashboardPanel } from './DashboardPanel';
 
 export interface SettingsPanelProps {
   settingsPanelRef: RefObject<HTMLElement | null>;
@@ -86,6 +88,7 @@ export interface SettingsPanelProps {
   onReviewStudyItem: (id: string, grade: StudyReviewGrade) => void;
   onDeleteStudyItem: (id: string) => void;
   onClearStudyItems: () => void;
+  onReplaceStudyItems: (items: StudyItem[]) => void;
   onExportStudyItems: (format: StudyLibraryExportFormat, items: StudyItem[]) => void;
   studyLibraryExportStatus: string;
   onOpenGuide: (kind: GuideKind) => void;
@@ -132,6 +135,7 @@ export function SettingsPanel({
   onReviewStudyItem,
   onDeleteStudyItem,
   onClearStudyItems,
+  onReplaceStudyItems,
   onExportStudyItems,
   studyLibraryExportStatus,
   onOpenGuide,
@@ -162,6 +166,7 @@ export function SettingsPanel({
   );
   const reasoningSelectValue = normalizeReasoningEffort(settings.reasoningEffort, currentProviderType, settings.model);
   const reasoningStatusText = reasoningHelpText(currentProviderType, settings.model);
+  const ocrDisabledReason = settings.inputMode !== 'ocr-text' ? '切换到“本地 OCR 后发文字”后可配置 OCR 选项' : undefined;
   const activeShortcuts = shortcutBindings(settings);
   const settingsTitleByView: Record<SettingsView, string> = {
     normal: '设置',
@@ -171,11 +176,20 @@ export function SettingsPanel({
     history: '学习库',
     providerGenerator: 'Provider 配置生成器',
     promptTemplates: 'Prompt 模板',
-    eval: '模型评测'
+    eval: '模型评测',
+    dashboard: '数据统计'
   };
   const settingsTitle = settingsTitleByView[settingsView];
 
   const modelIds = useMemo(() => new Set(modelOptions.map((model) => model.id)), [modelOptions]);
+
+  useEffect(() => {
+    const trimmed = settings.model.trim();
+    if (trimmed && modelIds.size > 0 && !modelIds.has(trimmed) && !isModelCustom) {
+      onIsModelCustomChange(true);
+    }
+  }, [settings.model, modelIds, isModelCustom, onIsModelCustomChange]);
+
   const modelSelectValue = isModelCustom
     ? CUSTOM_MODEL_VALUE
     : settings.model.trim()
@@ -250,6 +264,8 @@ export function SettingsPanel({
     <aside
       ref={settingsPanelRef as React.RefObject<HTMLElement>}
       className="settings-panel"
+      role="dialog"
+      aria-modal="true"
       aria-label="settings"
       data-interactive="true"
       onPointerEnter={onPointerEnter}
@@ -357,12 +373,14 @@ export function SettingsPanel({
       ) : settingsView === 'history' ? (
         <HistoryPanel
           studyItems={studyItems}
+          appVersion={appVersion}
           onRestore={onRestoreStudyItem}
           onUpdate={onUpdateStudyItem}
           onReview={onReviewStudyItem}
           onDelete={onDeleteStudyItem}
           onClear={onClearStudyItems}
           onExport={onExportStudyItems}
+          onReplaceItems={onReplaceStudyItems}
           exportStatus={studyLibraryExportStatus}
         />
       ) : settingsView === 'providerGenerator' ? (
@@ -376,6 +394,8 @@ export function SettingsPanel({
           modelOptions={modelOptions}
           onCopy={onCopyDiagnosticReport}
         />
+      ) : settingsView === 'dashboard' ? (
+        <DashboardPanel studyItems={studyItems} />
       ) : (
         <>
           <div className="settings-guide-row">
@@ -402,6 +422,10 @@ export function SettingsPanel({
             <button className="secondary-button" type="button" onClick={() => onSettingsViewChange('eval')}>
               <MessageSquareText size={16} />
               模型评测
+            </button>
+            <button className="secondary-button" type="button" onClick={() => onSettingsViewChange('dashboard')}>
+              <FileClock size={16} />
+              数据统计
             </button>
             <button className="secondary-button" type="button" onClick={() => onOpenGuide('product')}>
               整体功能向导
@@ -730,6 +754,7 @@ export function SettingsPanel({
                 onSettingsChange((current) => ({ ...current, ocrLanguage: event.target.value as OcrLanguage }))
               }
               disabled={settings.inputMode !== 'ocr-text'}
+              title={ocrDisabledReason}
             >
               <option value="chi_sim">中文</option>
               <option value="eng">English</option>
@@ -740,6 +765,7 @@ export function SettingsPanel({
               type="checkbox"
               checked={settings.ocrMathMode}
               disabled={settings.inputMode !== 'ocr-text'}
+              title={ocrDisabledReason}
               onChange={(event) => onSettingsChange((current) => ({ ...current, ocrMathMode: event.target.checked }))}
             />
             数学公式增强
@@ -755,6 +781,7 @@ export function SettingsPanel({
                 }))
               }
               disabled={settings.inputMode !== 'ocr-text'}
+              title={ocrDisabledReason}
             >
               <option value="auto">自动增强</option>
               <option value="none">不增强</option>
@@ -773,6 +800,19 @@ export function SettingsPanel({
             >
               <option value="zh-CN">中文</option>
               <option value="en">English</option>
+            </select>
+          </label>
+          <label>
+            主题
+            <select
+              value={settings.theme ?? 'system'}
+              onChange={(event) =>
+                onSettingsChange((current) => ({ ...current, theme: event.target.value as ThemeSetting }))
+              }
+            >
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
             </select>
           </label>
           <label className="toggle-row">

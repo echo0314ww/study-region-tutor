@@ -35,6 +35,7 @@ function expectNotInPersistedSettings(secretKey) {
 expectNotInPersistedSettings('apiKey');
 expectNotInPersistedSettings('proxyToken');
 expectContains('src/main/index.ts', 'contextIsolation: true');
+expectContains('src/main/index.ts', 'sandbox: true');
 expectContains('src/main/index.ts', 'nodeIntegration: false');
 expectContains('src/main/index.ts', 'webSecurity: true');
 expectContains('src/main/index.ts', 'allowRunningInsecureContent: false');
@@ -51,6 +52,24 @@ for (const forbidden of ['apiKey', 'proxyToken', 'ngrokToken']) {
 
   if (sanitized.includes(forbidden)) {
     fail(`src/shared/exportConversation.ts should not serialize ${forbidden}`);
+  }
+}
+
+const backupType = read('src/shared/types.ts');
+for (const forbidden of ['apiKey', 'proxyToken']) {
+  const backupSection = backupType.match(/interface StudyLibraryBackup \{[\s\S]*?\}/);
+
+  if (backupSection && backupSection[0].includes(forbidden)) {
+    fail(`StudyLibraryBackup type must not include ${forbidden}`);
+  }
+}
+
+const backupExportItem = backupType.match(/interface StudyLibraryExportItem \{[\s\S]*?\}/);
+if (backupExportItem) {
+  for (const forbidden of ['apiKey', 'proxyToken']) {
+    if (backupExportItem[0].includes(forbidden)) {
+      fail(`StudyLibraryExportItem type must not include ${forbidden}`);
+    }
   }
 }
 

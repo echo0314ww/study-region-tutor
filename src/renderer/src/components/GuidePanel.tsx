@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, BookOpen, Check, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { GuideDefinition, GuideKind } from '../uiTypes';
+import { useFocusTrap } from '../useFocusTrap';
 
 export interface GuidePanelProps {
   guide: GuideDefinition;
@@ -19,6 +20,7 @@ export function GuidePanel({
   onPointerEnter,
   onPointerLeave
 }: GuidePanelProps): JSX.Element {
+  const trapRef = useFocusTrap<HTMLElement>();
   const [stepIndex, setStepIndex] = useState(0);
   const [historyIndex, setHistoryIndex] = useState(0);
   const historyVersions = guide.historyVersions || [];
@@ -39,8 +41,11 @@ export function GuidePanel({
 
   return (
     <section
+      ref={trapRef}
       className="guide-panel"
       data-interactive="true"
+      role="dialog"
+      aria-modal="true"
       aria-label="guide"
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}

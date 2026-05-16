@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, watch } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -24,8 +24,22 @@ let activeAnnouncements = [];
 let announcementReloadTimer;
 let announcementWatchers = [];
 let lastServiceUrlSignature = '';
+let serviceUrlLogTimer;
 const announcementClients = new Set();
 const rateLimitBuckets = new Map();
+
+function safeTokenEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''), 'utf8');
+  const rightBuffer = Buffer.from(String(right || ''), 'utf8');
+
+  if (leftBuffer.length !== rightBuffer.length) {
+    const maxLength = Math.max(leftBuffer.length, rightBuffer.length, 1);
+    timingSafeEqual(Buffer.alloc(maxLength), Buffer.alloc(maxLength));
+    return false;
+  }
+
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
 
 function parseApiMode(value) {
   return value === 'responses' ? 'responses' : 'chat-completions';
@@ -48,7 +62,15 @@ function parseBoolean(value, fallback = true) {
     return fallback;
   }
 
-  return !['0', 'false', 'no', 'off'].includes(normalized);
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
 }
 
 function normalizeProviderId(id) {
@@ -79,6 +101,13 @@ function parsePositiveInteger(value) {
   const number = Number.parseInt(String(value || ''), 10);
 
   return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function parseCorsOrigins(value) {
+  return String(value || '')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
 }
 
 function loadProxyTokens(env) {
@@ -245,6 +274,8 @@ function loadConfig() {
   const maxBodyMb = Number.parseInt(String(env.TUTOR_PROXY_MAX_BODY_MB || DEFAULT_MAX_BODY_MB), 10);
   const defaultRateLimitPerMinute = parsePositiveInteger(env.TUTOR_PROXY_RATE_LIMIT_PER_MINUTE);
   const defaultRateLimitBurst = parsePositiveInteger(env.TUTOR_PROXY_RATE_LIMIT_BURST);
+  const corsOrigins = parseCorsOrigins(env.TUTOR_PROXY_CORS_ORIGINS);
+  const maxAnnouncementClients = parsePositiveInteger(env.TUTOR_PROXY_MAX_ANNOUNCEMENT_CLIENTS) || 64;
   const announcementFile = String(env.ANNOUNCEMENT_FILE || DEFAULT_ANNOUNCEMENT_FILE).trim();
   const releaseAnnouncementFile = String(
     env.ANNOUNCEMENT_RELEASE_FILE || DEFAULT_RELEASE_ANNOUNCEMENT_FILE
@@ -264,6 +295,8 @@ function loadConfig() {
     port: Number.isFinite(port) && port > 0 ? port : DEFAULT_PORT,
     maxBodyBytes: (Number.isFinite(maxBodyMb) && maxBodyMb > 0 ? maxBodyMb : DEFAULT_MAX_BODY_MB) * 1024 * 1024,
     publicProxyUrl,
+    corsOrigins,
+    maxAnnouncementClients,
     announcementEnabled: parseBoolean(env.ANNOUNCEMENT_ENABLED, true),
     announcementPaths,
     providers: providers.map((provider) => ({
@@ -298,6 +331,8 @@ function unavailableConfigFromError(error, previousConfig) {
   ).trim();
   let tokens = [];
   let publicProxyUrl = previousConfig?.publicProxyUrl || '';
+  const corsOrigins = parseCorsOrigins(env.TUTOR_PROXY_CORS_ORIGINS);
+  const maxAnnouncementClients = parsePositiveInteger(env.TUTOR_PROXY_MAX_ANNOUNCEMENT_CLIENTS) || 64;
 
   try {
     tokens = loadProxyTokens(env);
@@ -322,6 +357,8 @@ function unavailableConfigFromError(error, previousConfig) {
     port: Number.isFinite(port) && port > 0 ? port : DEFAULT_PORT,
     maxBodyBytes: (Number.isFinite(maxBodyMb) && maxBodyMb > 0 ? maxBodyMb : DEFAULT_MAX_BODY_MB) * 1024 * 1024,
     publicProxyUrl,
+    corsOrigins,
+    maxAnnouncementClients,
     announcementEnabled: parseBoolean(env.ANNOUNCEMENT_ENABLED, previousConfig?.announcementEnabled ?? true),
     announcementPaths: uniqueInOrder([releaseAnnouncementFile, announcementFile].filter(Boolean)).map((file) =>
       resolve(process.cwd(), file)
@@ -356,6 +393,11 @@ function closeListeningServer() {
   if (!server.listening) {
     return Promise.resolve();
   }
+
+  for (const client of announcementClients) {
+    client.end();
+  }
+  announcementClients.clear();
 
   return new Promise((resolveClose, reject) => {
     let settled = false;
@@ -581,12 +623,21 @@ function extractResponsesText(data) {
     return '';
   }
 
-  return data.output
-    .flatMap((item) => (isRecord(item) && Array.isArray(item.content) ? item.content : []))
-    .map((content) => (isRecord(content) && typeof content.text === 'string' ? content.text : ''))
-    .filter(Boolean)
-    .join('\n')
-    .trim();
+  const parts = [];
+
+  for (const item of data.output) {
+    if (!isRecord(item) || !Array.isArray(item.content)) {
+      continue;
+    }
+
+    for (const content of item.content.slice(0, 200)) {
+      if (isRecord(content) && typeof content.text === 'string') {
+        parts.push(content.text);
+      }
+    }
+  }
+
+  return parts.join('\n').trim();
 }
 
 function extractResponsesAnswer(data) {
@@ -717,7 +768,7 @@ function extractAnthropicStreamDelta(data) {
 }
 
 function imageDataFromDataUrl(dataUrl) {
-  const match = /^data:([^;,]+);base64,(.*)$/s.exec(String(dataUrl || ''));
+  const match = /^data:([^;,]+)(?:;[^,]*)*;base64,(.*)$/s.exec(String(dataUrl || ''));
 
   if (!match) {
     throw new Error('Invalid image data URL for the selected API provider.');
@@ -1256,15 +1307,14 @@ function streamParsers(provider) {
 function sendJson(res, status, body) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+    ...securityHeaders(),
+    ...corsHeaders(res.__requestOrigin)
   });
   res.end(JSON.stringify(body));
 }
 
 function sendEvent(res, payload) {
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  return res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
 function startSse(res) {
@@ -1272,10 +1322,33 @@ function startSse(res) {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
+    'X-Accel-Buffering': 'no',
+    ...securityHeaders(),
+    ...corsHeaders(res.__requestOrigin)
+  });
+}
+
+function securityHeaders() {
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer'
+  };
+}
+
+function corsHeaders(origin) {
+  const normalizedOrigin = String(origin || '').trim().replace(/\/+$/, '');
+
+  if (!normalizedOrigin || !activeConfig.corsOrigins?.includes(normalizedOrigin)) {
+    return {};
+  }
+
+  return {
+    'Access-Control-Allow-Origin': normalizedOrigin,
+    Vary: 'Origin',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
-  });
+  };
 }
 
 function normalizeAnnouncementLevel(value) {
@@ -1452,7 +1525,10 @@ function broadcastAnnouncement() {
   };
 
   for (const client of announcementClients) {
-    sendEvent(client, payload);
+    if (!sendEvent(client, payload)) {
+      announcementClients.delete(client);
+      client.end();
+    }
   }
 }
 
@@ -1507,15 +1583,28 @@ function handleLatestAnnouncement(res) {
 }
 
 function handleAnnouncementStream(req, res) {
+  if (announcementClients.size >= activeConfig.maxAnnouncementClients) {
+    sendJson(res, 429, { ok: false, error: 'Too many announcement stream clients.' });
+    return;
+  }
+
   startSse(res);
   announcementClients.add(res);
-  sendEvent(res, {
+  if (!sendEvent(res, {
     type: 'announcement',
     ...announcementPayload()
-  });
+  })) {
+    announcementClients.delete(res);
+    res.end();
+    return;
+  }
 
   const heartbeat = setInterval(() => {
-    sendEvent(res, { type: 'ping', at: new Date().toISOString() });
+    if (!sendEvent(res, { type: 'ping', at: new Date().toISOString() })) {
+      clearInterval(heartbeat);
+      announcementClients.delete(res);
+      res.end();
+    }
   }, 25000);
 
   req.on('close', () => {
@@ -1537,7 +1626,7 @@ function authorizeRequest(req) {
     return undefined;
   }
 
-  return activeConfig.tokens.find((item) => item.token === token);
+  return activeConfig.tokens.find((item) => safeTokenEqual(item.token, token));
 }
 
 function rateLimitSettingsFor(identity, config = activeConfig) {
@@ -1553,7 +1642,7 @@ function rateLimitSettingsFor(identity, config = activeConfig) {
   };
 }
 
-function checkRateLimit(identity, endpoint) {
+function checkRateLimit(identity) {
   const settings = rateLimitSettingsFor(identity);
 
   if (!settings) {
@@ -1561,7 +1650,12 @@ function checkRateLimit(identity, endpoint) {
   }
 
   const now = Date.now();
-  const key = `${identity.id}:${endpoint}`;
+  const key = identity.id;
+  for (const [bucketKey, bucket] of rateLimitBuckets) {
+    if (now - bucket.updatedAt > 10 * 60 * 1000) {
+      rateLimitBuckets.delete(bucketKey);
+    }
+  }
   const refillPerMs = settings.perMinute / 60000;
   const previous = rateLimitBuckets.get(key) || {
     tokens: settings.burst,
@@ -1635,12 +1729,20 @@ function streamRequestBodyFor(provider, body) {
 }
 
 async function postUpstreamStream(provider, body, onDelta, signal, model = body.model) {
+  const UPSTREAM_TIMEOUT_MS = 120_000;
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), UPSTREAM_TIMEOUT_MS);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutController.signal])
+    : timeoutController.signal;
+
+  try {
   const parsers = streamParsers(provider);
   const response = await fetch(endpointFor(provider, model, true), {
     method: 'POST',
     headers: requestHeadersFor(provider, 'text/event-stream'),
     body: JSON.stringify(streamRequestBodyFor(provider, body)),
-    signal
+    signal: combinedSignal
   });
 
   if (!response.ok) {
@@ -1676,6 +1778,13 @@ async function postUpstreamStream(provider, body, onDelta, signal, model = body.
   let responseId;
   let finalAnswer;
   let sawSseData = false;
+  const appendRawText = (text) => {
+    if (sawSseData || !text) {
+      return;
+    }
+
+    rawText = (rawText + text).slice(0, 16_384);
+  };
 
   const handlePayload = (payload) => {
     const trimmed = payload.trim();
@@ -1723,7 +1832,11 @@ async function postUpstreamStream(provider, body, onDelta, signal, model = body.
 
     for (const line of block.split('\n')) {
       if (line.startsWith('data:')) {
-        dataLines.push(line.slice('data:'.length).trimStart());
+        const dataLine = line.slice('data:'.length).trimStart();
+
+        if (dataLine.trim() !== '[DONE]') {
+          dataLines.push(dataLine);
+        }
       }
     }
 
@@ -1732,35 +1845,39 @@ async function postUpstreamStream(provider, body, onDelta, signal, model = body.
     }
   };
 
-  for (;;) {
-    const { done, value } = await reader.read();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
 
-    if (done) {
-      break;
+      if (done) {
+        break;
+      }
+
+      const chunk = decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      appendRawText(chunk);
+      buffer += chunk;
+
+      let boundary = buffer.indexOf('\n\n');
+
+      while (boundary !== -1) {
+        processBlock(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf('\n\n');
+      }
     }
 
-    const chunk = decoder.decode(value, { stream: true });
-    rawText += chunk;
-    buffer = (buffer + chunk).replace(/\r\n/g, '\n');
+    const tail = decoder.decode().replace(/\r\n/g, '\n');
 
-    let boundary = buffer.indexOf('\n\n');
-
-    while (boundary !== -1) {
-      processBlock(buffer.slice(0, boundary));
-      buffer = buffer.slice(boundary + 2);
-      boundary = buffer.indexOf('\n\n');
+    if (tail) {
+      appendRawText(tail);
+      buffer += tail;
     }
-  }
 
-  const tail = decoder.decode();
-
-  if (tail) {
-    rawText += tail;
-    buffer = (buffer + tail).replace(/\r\n/g, '\n');
-  }
-
-  if (buffer.trim()) {
-    processBlock(buffer);
+    if (buffer.trim()) {
+      processBlock(buffer);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
   }
 
   if (streamedText) {
@@ -1780,6 +1897,9 @@ async function postUpstreamStream(provider, body, onDelta, signal, model = body.
   }
 
   return { text: '', responseId };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function isRetryable(error) {
@@ -1905,7 +2025,13 @@ async function handleFollowUpStream(res, payload) {
 }
 
 function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
+  return String(error instanceof Error ? error.message : error)
+    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/(x-api-key\s*:\s*)\S+/gi, '$1[redacted]')
+    .replace(/(x-goog-api-key\s*:\s*)\S+/gi, '$1[redacted]')
+    .replace(/sk-[A-Za-z0-9_-]{20,}/g, '[redacted-api-key]')
+    .replace(/([?&](?:api[_-]?key|token|access[_-]?token|auth|authorization)=)[^&\s]+/gi, '$1[redacted]')
+    .replace(/\b(token=)[^&\s]+/gi, '$1[redacted]');
 }
 
 function configErrorMessage() {
@@ -1916,8 +2042,60 @@ function sendConfigError(res) {
   sendJson(res, 503, { ok: false, error: configErrorMessage() || '代理服务配置无效。' });
 }
 
+function validateExplainPayload(payload) {
+  if (typeof payload !== 'object' || payload === null) {
+    const err = new Error('Invalid payload: expected JSON object.');
+    err.status = 400;
+    throw err;
+  }
+  if (typeof payload.providerId !== 'string' || !payload.providerId.trim()) {
+    const err = new Error('Missing or invalid providerId.');
+    err.status = 400;
+    throw err;
+  }
+  if (!payload.task || typeof payload.task !== 'object') {
+    const err = new Error('Missing or invalid task field.');
+    err.status = 400;
+    throw err;
+  }
+  if (payload.model !== undefined && typeof payload.model !== 'string') {
+    const err = new Error('Invalid model field.');
+    err.status = 400;
+    throw err;
+  }
+}
+
+function validateFollowUpPayload(payload) {
+  if (typeof payload !== 'object' || payload === null) {
+    const err = new Error('Invalid payload: expected JSON object.');
+    err.status = 400;
+    throw err;
+  }
+  if (typeof payload.providerId !== 'string' || !payload.providerId.trim()) {
+    const err = new Error('Missing or invalid providerId.');
+    err.status = 400;
+    throw err;
+  }
+  if (payload.model !== undefined && typeof payload.model !== 'string') {
+    const err = new Error('Invalid model field.');
+    err.status = 400;
+    throw err;
+  }
+  if (payload.historyPrompt !== undefined && typeof payload.historyPrompt !== 'string') {
+    const err = new Error('Invalid historyPrompt field.');
+    err.status = 400;
+    throw err;
+  }
+  if (payload.previousResponseId !== undefined && typeof payload.previousResponseId !== 'string') {
+    const err = new Error('Invalid previousResponseId field.');
+    err.status = 400;
+    throw err;
+  }
+}
+
 async function route(req, res) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  res.__requestOrigin = req.headers.origin;
 
   if (req.method === 'OPTIONS') {
     sendJson(res, 204, { ok: true });
@@ -1928,11 +2106,10 @@ async function route(req, res) {
     if (activeConfig.configError) {
       sendJson(res, 503, {
         ok: false,
-        error: configErrorMessage(),
+        error: 'Proxy service configuration is invalid.',
         data: {
           status: 'config-error',
           loadedAt: activeConfig.loadedAt,
-          configError: activeConfig.configError,
           listeningPort,
           providerCount: 0,
           serviceUrls: serviceUrls(activeConfig),
@@ -1982,11 +2159,12 @@ async function route(req, res) {
   const identity = authorizeRequest(req);
 
   if (!identity) {
+    res.setHeader('WWW-Authenticate', 'Bearer realm="study-region-tutor-proxy"');
     sendJson(res, 401, { ok: false, error: 'Unauthorized proxy request.' });
     return;
   }
 
-  const limit = checkRateLimit(identity, url.pathname);
+  const limit = checkRateLimit(identity);
 
   if (!limit.ok) {
     res.setHeader('Retry-After', String(limit.retryAfterSeconds || 1));
@@ -2016,12 +2194,16 @@ async function route(req, res) {
   }
 
   if (url.pathname === '/explain/stream' && req.method === 'POST') {
-    await handleExplainStream(res, await readJsonBody(req));
+    const payload = await readJsonBody(req);
+    validateExplainPayload(payload);
+    await handleExplainStream(res, payload);
     return;
   }
 
   if (url.pathname === '/follow-up/stream' && req.method === 'POST') {
-    await handleFollowUpStream(res, await readJsonBody(req));
+    const payload = await readJsonBody(req);
+    validateFollowUpPayload(payload);
+    await handleFollowUpStream(res, payload);
     return;
   }
 
@@ -2054,6 +2236,11 @@ await listenOnPort(activeConfig.port);
 logServiceUrls(activeConfig);
 console.log('[proxy] use GET /health to check status; announcements are public; API proxy endpoints require Authorization: Bearer <TUTOR_PROXY_TOKEN>');
 
-setInterval(() => {
+serviceUrlLogTimer = setInterval(() => {
   logServiceUrls(activeConfig);
 }, 30000);
+serviceUrlLogTimer.unref?.();
+
+process.on('beforeExit', () => {
+  clearInterval(serviceUrlLogTimer);
+});

@@ -12,12 +12,15 @@ interface AnnouncementStreamEvent extends Partial<AnnouncementEvent> {
   type?: string;
 }
 
-const RETRY_DELAY_MS = 5000;
+const INITIAL_RETRY_DELAY_MS = 5000;
+const MAX_RETRY_DELAY_MS = 60000;
+const MAX_CONSECUTIVE_FAILURES = 8;
 
 let activeBaseUrl = '';
 let activeWebContents: WebContents | undefined;
 let activeController: AbortController | undefined;
 let reconnectTimer: NodeJS.Timeout | undefined;
+let consecutiveFailures = 0;
 
 function normalizeBaseUrl(sourceUrl?: string): string {
   const baseUrl = (sourceUrl === undefined ? process.env.TUTOR_PROXY_URL?.trim() || '' : sourceUrl.trim()).replace(
@@ -83,6 +86,7 @@ export function stopAnnouncementStream(): void {
   activeController = undefined;
   activeBaseUrl = '';
   activeWebContents = undefined;
+  consecutiveFailures = 0;
 }
 
 export async function fetchLatestAnnouncement(sourceUrl?: string): Promise<AnnouncementEvent> {
@@ -173,11 +177,18 @@ function scheduleReconnect(): void {
     return;
   }
 
+  if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+    console.warn('Announcement stream stopped after repeated reconnect failures.');
+    return;
+  }
+
   const baseUrl = activeBaseUrl;
   const webContents = activeWebContents;
+  const retryDelay = Math.min(MAX_RETRY_DELAY_MS, INITIAL_RETRY_DELAY_MS * 2 ** Math.max(0, consecutiveFailures - 1));
+  const jitter = Math.round(retryDelay * (0.2 + Math.random() * 0.3));
   reconnectTimer = setTimeout(() => {
     void openAnnouncementStream(baseUrl, webContents);
-  }, RETRY_DELAY_MS);
+  }, retryDelay + jitter);
 }
 
 function handleStreamPayload(payload: string, baseUrl: string): void {
@@ -196,6 +207,7 @@ function handleStreamPayload(payload: string, baseUrl: string): void {
   }
 
   if (event.type === 'announcement') {
+    consecutiveFailures = 0;
     sendAnnouncement(normalizeAnnouncementEvent(event, baseUrl));
   }
 }
@@ -240,34 +252,39 @@ async function openAnnouncementStream(baseUrl: string, webContents: WebContents)
     const decoder = new TextDecoder();
     let buffer = '';
 
-    for (;;) {
-      const { done, value } = await reader.read();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
 
-      if (done || controller.signal.aborted || webContents.isDestroyed()) {
-        break;
+        if (done || controller.signal.aborted || webContents.isDestroyed()) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+        let boundary = buffer.indexOf('\n\n');
+
+        while (boundary !== -1) {
+          processSseBlock(buffer.slice(0, boundary), baseUrl);
+          buffer = buffer.slice(boundary + 2);
+          boundary = buffer.indexOf('\n\n');
+        }
       }
 
-      buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n');
-      let boundary = buffer.indexOf('\n\n');
+      const tail = decoder.decode().replace(/\r\n/g, '\n');
 
-      while (boundary !== -1) {
-        processSseBlock(buffer.slice(0, boundary), baseUrl);
-        buffer = buffer.slice(boundary + 2);
-        boundary = buffer.indexOf('\n\n');
+      if (tail) {
+        buffer += tail;
       }
-    }
 
-    const tail = decoder.decode();
-
-    if (tail) {
-      buffer = (buffer + tail).replace(/\r\n/g, '\n');
-    }
-
-    if (buffer.trim()) {
-      processSseBlock(buffer, baseUrl);
+      if (buffer.trim()) {
+        processSseBlock(buffer, baseUrl);
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
     }
   } catch (error) {
     if (!controller.signal.aborted) {
+      consecutiveFailures += 1;
       console.warn(`Announcement stream disconnected: ${error instanceof Error ? error.message : String(error)}`);
     }
   } finally {
@@ -275,7 +292,7 @@ async function openAnnouncementStream(baseUrl: string, webContents: WebContents)
       activeController = undefined;
     }
 
-    if (!controller.signal.aborted) {
+    if (!controller.signal.aborted && !webContents.isDestroyed()) {
       scheduleReconnect();
     }
   }
@@ -297,5 +314,6 @@ export function connectAnnouncementStream(sourceUrl: string | undefined, webCont
   activeController?.abort();
   activeBaseUrl = baseUrl;
   activeWebContents = webContents;
+  consecutiveFailures = 0;
   void openAnnouncementStream(baseUrl, webContents);
 }

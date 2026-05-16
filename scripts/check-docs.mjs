@@ -224,7 +224,14 @@ expectContains('docs/announcements.md', 'release-vX.Y.Z');
 expectContains('.github/workflows/release-windows.yml', 'npm run docs:check');
 expectContains('.github/workflows/release-windows.yml', 'npm run publish:win');
 expectContains('.github/workflows/release-windows.yml', 'GITHUB_TOKEN');
+expectContains('.github/workflows/ci.yml', 'node --check server/proxy-server.mjs');
+expectContains('.github/workflows/release-windows.yml', 'node --check server/proxy-server.mjs');
+expectNotContains('.github/workflows/release-windows.yml', /^\s*workflow_dispatch\s*:/m, 'manual release workflow dispatch');
+expectContains('.github/workflows/release-windows.yml', 'Validate release tag');
+expectContains('.github/workflows/release-windows.yml', '^v\\d+\\.\\d+\\.\\d+$', 'vX.Y.Z tag validation');
 expectFile('.github/workflows/sync-release-notes.yml');
+expectContains('docs/documentation-policy.md', 'Unreleased');
+expectContains('docs/release-checklist.md', 'Unreleased');
 
 const devLogDir = projectPath('docs/dev-log');
 if (existsSync(devLogDir) && statSync(devLogDir).isDirectory()) {

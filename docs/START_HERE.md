@@ -28,8 +28,12 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 docs/START_HERE.m
 - 支持首次配置向导、代理管理面板、快捷键自定义、学习库/错题本、Provider 配置生成器、Prompt 模板和模型评测。
 - OCR 确认页支持多路候选切换和可选预处理；诊断支持快速检查、实际请求文本接口的深度测试和安全边界检查；公告支持按分类分组。
 - 学习库支持待复习/错题筛选、复习反馈、结构化知识点归类，以及 Markdown、Anki CSV、Obsidian 批量导出。
-- 发布统一走 GitHub Actions，推送 `vX.Y.Z` tag 后自动构建并发布 Windows 安装包。
+- 学习库支持 JSON 备份导出和导入，导入时可选择替换或合并策略。
+- 支持暗色模式（亮色、暗色、跟随系统）；已建立中英文 i18n 基础设施，当前语言设置主要控制回答/导出语言。
+- 错题统计仪表盘展示学科雷达图、知识点/易错点柱形图和统计卡片。
+- 发布统一走 GitHub Actions，推送 `vX.Y.Z` tag 后校验、构建并发布 Windows 安装包。
 - 已有 `npm run docs:check` 检查版本、文档结构、版本公告、发布说明、向导和敏感信息风险；`npm run security:check` 检查安全边界。
+- 已有 `.github/workflows/ci.yml` 在 PR 和 `main` 推送时运行文档检查、类型检查、Lint、测试、安全边界检查和构建。
 
 ## 任务到文档映射
 
@@ -50,7 +54,7 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 docs/START_HERE.m
 - 不实现隐藏窗口、绕过监控、自动提交答案、自动点击网页或规避检测等考试作弊能力。
 - 默认提示词和产品行为必须面向学习讲解；遇到正式考试、竞赛、测验或受限制平台，只给学习性讲解和建议。
 - API Key 只在主进程或代理服务端读取和使用，不进入渲染层 `localStorage`、导出文件、诊断报告或公告。
-- 发布统一走 GitHub Actions：推送 `vX.Y.Z` tag 触发 `.github/workflows/release-windows.yml`，不要在本机手动发布 GitHub Release。
+- 发布统一走 GitHub Actions：推送 `vX.Y.Z` tag 触发 `.github/workflows/release-windows.yml`，工作流会校验 tag 格式，不要在本机手动发布 GitHub Release。
 - GitHub Actions 使用仓库自带 `GITHUB_TOKEN`；不需要 Personal Access Token。
 - 每次版本发布前必须确认“本版本新增向导”、“历史版本向导回顾”和“整体功能向导”是否需要更新；旧版本新增向导条目不得删除。
 - 每次正式发布后，GitHub Actions 成功后再运行 `npm run dist` 同步本地 `release/`，并确认 `release/latest.yml` 指向最新版本。

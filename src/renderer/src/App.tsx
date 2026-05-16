@@ -9,8 +9,7 @@ import type {
   OcrPreviewResult,
   RegionBounds,
   StudyLibraryExportFormat,
-  TutorSettings,
-  UpdateStatusEvent
+  TutorSettings
 } from '../../shared/types';
 import type {
   FloatingPosition,
@@ -51,6 +50,9 @@ import {
 import { useAnnouncements } from './useAnnouncements';
 import { usePointerInteractions } from './usePointerInteractions';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
+import { useUpdateStatus } from './useUpdateStatus';
+import { useTheme } from './useTheme';
+import { LocaleContext } from './i18n';
 import {
   loadStudyItems,
   saveStudyItems,
@@ -67,6 +69,11 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { GuidePanel } from './components/GuidePanel';
 import { SetupWizard } from './components/SetupWizard';
 import { guideDefinition, hasGuideContent } from './guides';
+
+type ConfirmDialogState =
+  | { action: 'quit'; title: string; body: string; confirmLabel: string; danger?: boolean }
+  | { action: 'delete-study-item'; id: string; title: string; body: string; confirmLabel: string; danger?: boolean }
+  | { action: 'clear-study-items'; title: string; body: string; confirmLabel: string; danger?: boolean };
 
 export function App(): JSX.Element {
   const [region, setRegion] = useState(() => clampRegion(DEFAULT_REGION));
@@ -110,10 +117,9 @@ export function App(): JSX.Element {
   const [isDiagnosticsRunning, setIsDiagnosticsRunning] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
   const [studyLibraryExportStatus, setStudyLibraryExportStatus] = useState('');
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatusEvent>({
-    status: 'idle',
-    message: '尚未检查更新。'
-  });
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+  const updateStatus = useUpdateStatus();
+  useTheme(settings.theme ?? 'system');
   const lastRequestRef = useRef<RegionBounds | null>(null);
   const activeRequestIdRef = useRef('');
   const cancelingRequestIdRef = useRef('');
@@ -126,6 +132,7 @@ export function App(): JSX.Element {
   const isModelCustomRef = useRef(false);
   const setupWizardAutoOpenRef = useRef(false);
   const metadataRequestIdsRef = useRef(new Set<string>());
+  const saveStudyItemsTimerRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     isModelCustomRef.current = isModelCustom;
   }, [isModelCustom]);
@@ -135,7 +142,28 @@ export function App(): JSX.Element {
   }, [settings]);
 
   useEffect(() => {
-    saveStudyItems(studyItems);
+    if (!exportStatus) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setExportStatus(''), 6000);
+    return () => window.clearTimeout(timer);
+  }, [exportStatus]);
+
+  useEffect(() => {
+    if (!studyLibraryExportStatus) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setStudyLibraryExportStatus(''), 6000);
+    return () => window.clearTimeout(timer);
+  }, [studyLibraryExportStatus]);
+
+  useEffect(() => {
+    window.clearTimeout(saveStudyItemsTimerRef.current);
+    saveStudyItemsTimerRef.current = window.setTimeout(() => saveStudyItems(studyItems), 200);
+
+    return () => window.clearTimeout(saveStudyItemsTimerRef.current);
   }, [studyItems]);
 
   const hasPendingCaptureConfirm = pendingCaptureRegion !== null;
@@ -183,9 +211,14 @@ export function App(): JSX.Element {
   });
 
   const canRetry = Boolean(lastRequestRef.current) && !isLoading;
+  const canCompleteSetupWizard =
+    Boolean(settings.model.trim()) &&
+    (isProxyConnection
+      ? Boolean(currentProxyUrl.trim()) && (Boolean(settings.proxyToken.trim()) || Boolean(apiDefaults?.hasProxyToken))
+      : hasSelectedDirectApiConfig(apiDefaults, settings.providerId));
 
   useEffect(() => {
-    if (!activeStudyItemId || ocrPreview || conversationTurns.length === 0) {
+    if (!activeStudyItemId || ocrPreview || isLoading || conversationTurns.length === 0) {
       return;
     }
 
@@ -197,7 +230,7 @@ export function App(): JSX.Element {
         turns: conversationTurns
       })
     );
-  }, [activeStudyItemId, appVersion, conversationTurns, ocrPreview, settings]);
+  }, [activeStudyItemId, appVersion, conversationTurns, isLoading, ocrPreview, settings]);
 
   useEffect(() => {
     if (!activeStudyItemId || ocrPreview || isLoading || conversationTurns.length === 0 || !settings.model.trim()) {
@@ -244,7 +277,7 @@ export function App(): JSX.Element {
           });
         });
       })
-      .catch(() => undefined);
+      .catch(() => metadataRequestIdsRef.current.delete(studyItemId));
   }, [activeStudyItemId, conversationTurns, isLoading, ocrPreview, settings, studyItems]);
 
   const clearSavedProxyTokenState = useCallback((message = PROXY_TOKEN_INVALID_MESSAGE): void => {
@@ -401,7 +434,12 @@ export function App(): JSX.Element {
       setProxyHealthMessage('');
 
       try {
-        const health = await window.studyTutor.checkProxyHealth(proxyUrl);
+        const health = await Promise.race([
+          window.studyTutor.checkProxyHealth(proxyUrl),
+          new Promise<never>((_resolve, reject) => {
+            window.setTimeout(() => reject(new Error('代理健康检查超时，请确认地址可访问。')), 10000);
+          })
+        ]);
 
         if (proxyHealthRequestIdRef.current !== requestId) {
           return;
@@ -444,8 +482,29 @@ export function App(): JSX.Element {
   }, []);
 
   const copyTextToClipboard = useCallback((text: string): void => {
+    const copyWithTextArea = (): boolean => {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', 'true');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+
+      try {
+        return document.execCommand('copy');
+      } finally {
+        textarea.remove();
+      }
+    };
+
     if (!navigator.clipboard?.writeText) {
-      setExportStatus('当前系统剪贴板不可用，请使用导出答案。');
+      try {
+        const copied = copyWithTextArea();
+        setExportStatus(copied ? '已复制到剪贴板。' : '当前系统剪贴板不可用，请使用导出答案。');
+      } catch (caught) {
+        setExportStatus(caught instanceof Error ? caught.message : String(caught));
+      }
       return;
     }
 
@@ -453,7 +512,12 @@ export function App(): JSX.Element {
       .writeText(text)
       .then(() => setExportStatus('已复制到剪贴板。'))
       .catch((caught) => {
-        setExportStatus(caught instanceof Error ? caught.message : String(caught));
+        try {
+          const copied = copyWithTextArea();
+          setExportStatus(copied ? '已复制到剪贴板。' : caught instanceof Error ? caught.message : String(caught));
+        } catch {
+          setExportStatus(caught instanceof Error ? caught.message : String(caught));
+        }
       });
   }, []);
 
@@ -652,42 +716,48 @@ export function App(): JSX.Element {
       setRegion((current) => clampRegion(current));
       setResultPanel((current) => clampResultPanel(current));
     };
-    const unsubscribeCaptureUi = window.studyTutor.onCaptureUiVisible(setIsCaptureUiVisible);
-    const unsubscribeUpdateStatus = window.studyTutor.onUpdateStatus(setUpdateStatus);
-    const unsubscribeProgress = window.studyTutor.onExplainProgress((progress) => {
-      if (progress.requestId !== activeRequestIdRef.current) {
-        return;
-      }
-
-      latestProgressTextRef.current = progress.text;
-      if (!hasAnswerStartedRef.current) {
-        setProgressText(progress.text);
-      }
-      setIsResultOpen(true);
-    });
-    const unsubscribeAnswerDelta = window.studyTutor.onAnswerDelta((delta) => {
-      if (delta.requestId !== activeRequestIdRef.current) {
-        return;
-      }
-
-      if (delta.reset) {
-        hasAnswerStartedRef.current = false;
-      }
-      hideProgressWhenAnswerStarts(delta.text);
-      appendAnswerDelta(delta.text, delta.reset);
-      setIsResultOpen(true);
-    });
     window.addEventListener('resize', onResize);
 
     return () => {
       isMounted = false;
       window.removeEventListener('resize', onResize);
-      unsubscribeCaptureUi();
-      unsubscribeUpdateStatus();
-      unsubscribeProgress();
-      unsubscribeAnswerDelta();
     };
-  }, [appendAnswerDelta, hideProgressWhenAnswerStarts, loadModels, refreshApiProviders]);
+  }, [loadModels, refreshApiProviders]);
+
+  useEffect(() => window.studyTutor.onCaptureUiVisible(setIsCaptureUiVisible), []);
+
+  useEffect(
+    () =>
+      window.studyTutor.onExplainProgress((progress) => {
+        if (progress.requestId !== activeRequestIdRef.current) {
+          return;
+        }
+
+        latestProgressTextRef.current = progress.text;
+        if (!hasAnswerStartedRef.current) {
+          setProgressText(progress.text);
+        }
+        setIsResultOpen(true);
+      }),
+    []
+  );
+
+  useEffect(
+    () =>
+      window.studyTutor.onAnswerDelta((delta) => {
+        if (delta.requestId !== activeRequestIdRef.current) {
+          return;
+        }
+
+        if (delta.reset) {
+          hasAnswerStartedRef.current = false;
+        }
+        hideProgressWhenAnswerStarts(delta.text);
+        appendAnswerDelta(delta.text, delta.reset);
+        setIsResultOpen(true);
+      }),
+    [appendAnswerDelta, hideProgressWhenAnswerStarts]
+  );
 
   useEffect(() => {
     if (!appVersion || activeGuideKind) {
@@ -718,10 +788,16 @@ export function App(): JSX.Element {
     }
 
     try {
+      const setupVersionKey = appVersion.split('.').slice(0, 2).join('.') || appVersion;
       const completedVersion = localStorage.getItem(SETUP_WIZARD_COMPLETED_VERSION_KEY);
       const dismissedVersion = localStorage.getItem(SETUP_WIZARD_DISMISSED_VERSION_KEY);
 
-      if (completedVersion === appVersion || dismissedVersion === appVersion) {
+      if (
+        completedVersion === setupVersionKey ||
+        completedVersion === appVersion ||
+        dismissedVersion === setupVersionKey ||
+        dismissedVersion === appVersion
+      ) {
         return;
       }
     } catch {
@@ -1228,11 +1304,13 @@ export function App(): JSX.Element {
   );
 
   const quitApp = useCallback((): void => {
-    if (!window.confirm('确定要退出应用吗？')) {
-      return;
-    }
-
-    void window.studyTutor.quitApp();
+    setConfirmDialog({
+      action: 'quit',
+      title: '退出应用',
+      body: '确定要退出 Study Region Tutor 吗？正在进行的请求会被取消。',
+      confirmLabel: '退出',
+      danger: true
+    });
   }, []);
 
   // --- Callback adapters for child components ---
@@ -1272,6 +1350,9 @@ export function App(): JSX.Element {
 
   const handleCloseSettings = useCallback((): void => {
     setSettingsView('normal');
+    proxyHealthRequestIdRef.current += 1;
+    setProxyHealthStatus('idle');
+    setProxyHealthMessage('');
     setIsSettingsOpen(false);
   }, []);
 
@@ -1284,21 +1365,25 @@ export function App(): JSX.Element {
   }, [closeAnnouncementPanel]);
 
   const completeSetupWizard = useCallback((): void => {
+    if (!canCompleteSetupWizard) {
+      return;
+    }
+
     if (appVersion) {
       try {
-        localStorage.setItem(SETUP_WIZARD_COMPLETED_VERSION_KEY, appVersion);
+        localStorage.setItem(SETUP_WIZARD_COMPLETED_VERSION_KEY, appVersion.split('.').slice(0, 2).join('.') || appVersion);
       } catch {
         // Completion is best-effort; closing the wizard should still work.
       }
     }
 
     setIsSetupWizardOpen(false);
-  }, [appVersion]);
+  }, [appVersion, canCompleteSetupWizard]);
 
   const dismissSetupWizard = useCallback((): void => {
     if (appVersion) {
       try {
-        localStorage.setItem(SETUP_WIZARD_DISMISSED_VERSION_KEY, appVersion);
+        localStorage.setItem(SETUP_WIZARD_DISMISSED_VERSION_KEY, appVersion.split('.').slice(0, 2).join('.') || appVersion);
       } catch {
         // Dismissal is best-effort; closing the wizard should still work.
       }
@@ -1389,14 +1474,72 @@ export function App(): JSX.Element {
   );
 
   const deleteStudyItem = useCallback((id: string): void => {
-    setStudyItems((current) => current.filter((item) => item.id !== id));
-    setActiveStudyItemId((current) => (current === id ? '' : current));
+    setConfirmDialog({
+      action: 'delete-study-item',
+      id,
+      title: '删除学习记录',
+      body: '确定要删除这条学习记录吗？删除后无法从应用内恢复。',
+      confirmLabel: '删除',
+      danger: true
+    });
   }, []);
 
   const clearStudyItems = useCallback((): void => {
+    setConfirmDialog({
+      action: 'clear-study-items',
+      title: '清空学习库',
+      body: '确定要清空全部学习记录吗？建议先导出备份。',
+      confirmLabel: '清空',
+      danger: true
+    });
+  }, []);
+
+  const replaceStudyItems = useCallback((items: StudyItem[]): void => {
+    setStudyItems(items);
+  }, []);
+
+  const closeConfirmDialog = useCallback((): void => {
+    setConfirmDialog(null);
+  }, []);
+
+  const confirmPendingAction = useCallback((): void => {
+    if (!confirmDialog) {
+      return;
+    }
+
+    if (confirmDialog.action === 'quit') {
+      void window.studyTutor.quitApp();
+      return;
+    }
+
+    if (confirmDialog.action === 'delete-study-item') {
+      const id = confirmDialog.id;
+      setStudyItems((current) => current.filter((item) => item.id !== id));
+      setActiveStudyItemId((current) => (current === id ? '' : current));
+      setConfirmDialog(null);
+      return;
+    }
+
     setStudyItems([]);
     setActiveStudyItemId('');
-  }, []);
+    setConfirmDialog(null);
+  }, [confirmDialog]);
+
+  useEffect(() => {
+    if (!confirmDialog) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeConfirmDialog();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [closeConfirmDialog, confirmDialog]);
 
   const startDragCapture = useCallback((): void => {
     setPendingCaptureRegion(null);
@@ -1414,12 +1557,12 @@ export function App(): JSX.Element {
 
   const handleDragCapture = useCallback(
     (selectedRegion: RegionBounds): void => {
-      const nextRegion = {
+      const nextRegion = clampRegion({
         x: Math.round(selectedRegion.x),
         y: Math.round(selectedRegion.y),
         width: Math.round(selectedRegion.width),
         height: Math.round(selectedRegion.height)
-      };
+      });
 
       setRegion(nextRegion);
       setIsDragCaptureActive(false);
@@ -1443,6 +1586,7 @@ export function App(): JSX.Element {
   }, []);
 
   const activeShortcutBindings = useMemo(() => shortcutBindings(settings), [settings]);
+  const hasFinishableQuestion = Boolean(activeSessionId || conversationTurns.length > 0 || result || ocrPreview);
   const shortcutHandlers = useMemo(
     () => ({
       'start-capture': (): void => {
@@ -1489,31 +1633,28 @@ export function App(): JSX.Element {
       'open-settings': (): void => handleToggleSettings(),
       'open-announcements': (): void => toggleAnnouncementPanel(),
       'finish-question': (): void => {
-        if (!isLoading && (activeSessionId || conversationTurns.length > 0 || result || ocrPreview)) {
+        if (!isLoading && hasFinishableQuestion) {
           void endCurrentQuestion();
         }
       }
     }),
     [
-      activeSessionId,
       cancelCurrentRequest,
       cancelDragCapture,
       cancelPendingCapture,
       closeAnnouncementPanel,
       confirmPendingCapture,
-      conversationTurns.length,
       dismissSetupWizard,
       endCurrentQuestion,
       handleCloseSettings,
       handleToggleSettings,
+      hasFinishableQuestion,
       isAnnouncementOpen,
       isDragCaptureActive,
       isLoading,
       isSettingsOpen,
       isSetupWizardOpen,
-      ocrPreview,
       pendingCaptureRegion,
-      result,
       startDragCapture,
       toggleAnnouncementPanel
     ]
@@ -1522,6 +1663,7 @@ export function App(): JSX.Element {
   useKeyboardShortcuts(activeShortcutBindings, shortcutHandlers);
 
   return (
+    <LocaleContext.Provider value={settings.language}>
     <main
       className="app-shell"
       onPointerDownCapture={onPointerDownCapture}
@@ -1590,6 +1732,7 @@ export function App(): JSX.Element {
           proxyHealthMessage={proxyHealthMessage}
           appVersion={appVersion}
           currentProxyUrl={currentProxyUrl}
+          canComplete={canCompleteSetupWizard}
           onSettingsChange={setSettings}
           onSelectApiConnectionMode={selectApiConnectionMode}
           onSelectApiProvider={selectApiProvider}
@@ -1694,6 +1837,7 @@ export function App(): JSX.Element {
           onReviewStudyItem={reviewStudyItem}
           onDeleteStudyItem={deleteStudyItem}
           onClearStudyItems={clearStudyItems}
+          onReplaceStudyItems={replaceStudyItems}
           onExportStudyItems={(format, items) => void exportStudyItems(format, items)}
           studyLibraryExportStatus={studyLibraryExportStatus}
           onOpenGuide={openGuide}
@@ -1702,6 +1846,30 @@ export function App(): JSX.Element {
           onPointerLeave={leaveInteractiveSurface}
         />
       )}
+
+      {confirmDialog && (
+        <div className="confirm-modal-backdrop" data-interactive="true">
+          <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+            <div>
+              <strong id="confirm-modal-title">{confirmDialog.title}</strong>
+              <p>{confirmDialog.body}</p>
+            </div>
+            <div className="confirm-modal-actions">
+              <button className="secondary-button" type="button" onClick={closeConfirmDialog}>
+                取消
+              </button>
+              <button
+                className={confirmDialog.danger ? 'danger-button' : 'primary-button'}
+                type="button"
+                onClick={confirmPendingAction}
+              >
+                {confirmDialog.confirmLabel}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
+    </LocaleContext.Provider>
   );
 }
