@@ -23,6 +23,7 @@ import type {
   ShortcutAction,
   StudyDifficulty,
   StudyItemStatus,
+  StudyLibraryBackup,
   StudyLibraryExportFormat,
   StudyLibraryExportItem,
   StudyMetadata,
@@ -314,12 +315,48 @@ export function parseOptionalSourceUrl(value: unknown): string | undefined {
       ipv4Parts[0] === 127 ||
       (ipv4Parts[0] === 169 && ipv4Parts[1] === 254) ||
       (ipv4Parts[0] === 172 && ipv4Parts[1] >= 16 && ipv4Parts[1] <= 31) ||
-      (ipv4Parts[0] === 192 && ipv4Parts[1] === 168));
+      (ipv4Parts[0] === 192 && ipv4Parts[1] === 168) ||
+      ipv4Parts[0] === 0);
+
+  // Detect decimal IP (e.g. http://2130706433) and octal IP (e.g. http://0177.0.0.1)
+  const isDecimalIp = /^\d{8,10}$/.test(hostname);
+  const isOctalIp = /^0\d+(\.\d+){0,3}$/.test(hostname);
+
   const isLoopbackOrLocal =
     hostname === 'localhost' || hostname === '::1' || hostname === '[::1]' || hostname.endsWith('.localhost');
 
-  if (isPrivateIpv4 || isLoopbackOrLocal || isPrivateOrReservedIpv6(hostname)) {
+  if (isPrivateIpv4 || isLoopbackOrLocal || isDecimalIp || isOctalIp || isPrivateOrReservedIpv6(hostname)) {
     fail('sourceUrl', 'expected a trusted public proxy URL');
+  }
+
+  return text.replace(/\/+$/, '');
+}
+
+export function parseOptionalProxyServiceUrl(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const text = stringValue(value, 'proxyUrl', 2_048).trim();
+
+  if (!text) {
+    return '';
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(text);
+  } catch {
+    fail('proxyUrl', 'expected a valid URL');
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    fail('proxyUrl', 'expected http or https URL');
+  }
+
+  if (url.username || url.password) {
+    fail('proxyUrl', 'expected URL without credentials');
   }
 
   return text.replace(/\/+$/, '');
@@ -543,5 +580,25 @@ export function parseExportStudyLibraryRequest(value: unknown): ExportStudyLibra
     exportedAt: stringValue(value.exportedAt, 'exportStudyLibraryRequest.exportedAt', 80),
     format: enumValue(value.format, STUDY_EXPORT_FORMATS, 'exportStudyLibraryRequest.format'),
     items: arrayValue(value.items, 'exportStudyLibraryRequest.items', MAX_EXPORT_ITEMS, parseStudyLibraryExportItem)
+  };
+}
+
+export function parseStudyLibraryBackup(value: unknown): StudyLibraryBackup {
+  if (!isRecord(value)) {
+    fail('studyLibraryBackup', 'expected object');
+  }
+
+  if (value.version !== 1) {
+    fail('studyLibraryBackup.version', 'expected version 1');
+  }
+
+  const items = arrayValue(value.items, 'studyLibraryBackup.items', MAX_EXPORT_ITEMS, parseStudyLibraryExportItem);
+
+  return {
+    version: 1,
+    exportedAt: stringValue(value.exportedAt, 'studyLibraryBackup.exportedAt', 80),
+    appVersion: stringValue(value.appVersion, 'studyLibraryBackup.appVersion', 80),
+    itemCount: items.length,
+    items
   };
 }

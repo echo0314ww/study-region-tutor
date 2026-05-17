@@ -12,6 +12,7 @@ import {
 import React from 'react';
 import type { PointerEvent, RefObject } from 'react';
 import type { FloatingPosition } from '../uiTypes';
+import { useTranslation } from '../i18n';
 
 export interface ToolbarProps {
   toolbarRef: RefObject<HTMLElement | null>;
@@ -54,6 +55,8 @@ export function Toolbar({
   onPointerEnter,
   onPointerLeave
 }: ToolbarProps): JSX.Element {
+  const { t } = useTranslation();
+
   return (
     <nav
       ref={toolbarRef as React.RefObject<HTMLElement>}
@@ -76,8 +79,8 @@ export function Toolbar({
         className="toolbar-drag-handle icon-button ghost"
         type="button"
         onPointerDown={onDragPointerDown}
-        title="移动工具栏"
-        aria-label="移动工具栏"
+        title={t('toolbar.drag')}
+        aria-label={t('toolbar.drag')}
       >
         <GripVertical size={18} />
       </button>
@@ -88,34 +91,35 @@ export function Toolbar({
         disabled={isLoading}
       >
         <ScanLine size={18} />
-        {isCaptureModeActive ? '取消截图' : hasPendingCaptureConfirm ? '重选截图' : '截图'}
+        {isCaptureModeActive ? t('toolbar.cancelCapture') : hasPendingCaptureConfirm ? t('toolbar.recapture') : t('toolbar.capture')}
       </button>
       {hasPendingCaptureConfirm && !isLoading && (
         <button className="primary-button" type="button" onClick={onConfirmCapture}>
           <Check size={18} />
-          确认识别
+          {t('toolbar.confirmCapture')}
         </button>
       )}
       {isLoading && (
         <button className="primary-button" type="button" disabled>
           <Loader2 size={18} className="spin" />
-          识别中
+          {t('toolbar.recognizing')}
         </button>
       )}
       {isLoading && (
         <button className="secondary-button" type="button" onClick={onCancel} disabled={isCancelling}>
           <X size={18} />
-          {isCancelling ? '停止中' : '停止'}
+          {isCancelling ? t('toolbar.stopping') : t('toolbar.stop')}
         </button>
       )}
-      <button className="icon-button" type="button" onClick={onToggleResult} title="对话">
+      <button className="icon-button" type="button" onClick={onToggleResult} title={t('toolbar.result')} aria-label={t('toolbar.result')}>
         <MessageSquareText size={18} />
       </button>
       <button
         className={`icon-button ${hasUnreadAnnouncement ? 'has-dot' : ''}`}
         type="button"
         onClick={onToggleAnnouncement}
-        title="公告"
+        title={t('toolbar.announcements')}
+        aria-label={t('toolbar.announcements')}
       >
         <Bell size={18} />
       </button>
@@ -123,11 +127,12 @@ export function Toolbar({
         className="icon-button"
         type="button"
         onClick={onToggleSettings}
-        title="设置"
+        title={t('toolbar.settings')}
+        aria-label={t('toolbar.settings')}
       >
         <Settings size={18} />
       </button>
-      <button className="icon-button" type="button" onClick={onQuit} title="退出应用">
+      <button className="icon-button" type="button" onClick={onQuit} title={t('toolbar.quit')} aria-label={t('toolbar.quit')}>
         <Power size={18} />
       </button>
     </nav>

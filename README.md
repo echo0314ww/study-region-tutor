@@ -47,6 +47,12 @@ npm run dev:tabs
 - `docs/codex-handoff.md`：Codex 接手和协作规范。
 - `docs/proxy-config.example.env`：代理和 provider 配置模板，不含真实密钥。
 
+项目规范：
+
+- `CONTRIBUTING.md`：贡献指南（环境要求、代码规范、PR 流程）。
+- `LICENSE`：MIT 许可证。
+- `.env.example`：环境变量配置模板。
+
 Windows PowerShell 查看中文文档时，优先使用：
 
 ```powershell
@@ -98,7 +104,7 @@ AI_API_KEY=你的第三方 API Key
 - 输出语言
 - 是否只讲思路
 - 主题（亮色 / 暗色 / 跟随系统）
-- 语言（当前控制回答/导出语言；界面 i18n 基础设施已预留）
+- 语言（中文 / 英文，控制界面文案和模型回答语言）
 
 设置页顶部提供三类向导：
 
@@ -173,14 +179,17 @@ npm run build
 npm run security:check
 node --check server/proxy-server.mjs
 node --check server/ngrok-dev.mjs
+node --check server/runtime-env.mjs
 node --check scripts/sync-release-notes.mjs
 ```
 
-也可以运行：
+基础验证也可以运行：
 
 ```bash
 npm run validate
 ```
+
+`npm run validate` 覆盖类型检查、Lint、测试、文档检查和安全边界检查；发布前仍需额外运行 `npm run build` 和上面的脚本语法检查。
 
 当前 Windows Codex 环境中，`npm run test`、`npm run build`、`npm run dist` 偶尔会因为 esbuild `spawn EPERM` 失败；提升权限重跑通常可以通过。
 

@@ -4,6 +4,48 @@
 
 暂无。
 
+## v1.4.0 - 2026-05-17
+
+### 改进
+
+- 核心操作界面、提示和状态文案完成中英文 i18n 收尾，新增 `translateMessage` 供 App/hooks 使用；历史版本向导内容仍按中文源维护。
+- App.tsx 通过 7 个自定义 Hook 拆分状态和业务逻辑（useApiSettings、useExplainSession、useStudyLibrary、useCaptureFlow、useGuides、useDiagnostics、useConfirmDialog），主文件从 ~1876 行精简为布局编排层。
+- 提取 ConfirmModal 为独立组件，内置 useFocusTrap 实现键盘焦点陷阱。
+- KaTeX 安全加固：sanitizeKatexHtml 增加 `<script>`、`<iframe>` 和事件处理器过滤；数学公式元素添加 `role="math"` 和 `aria-label` 无障碍属性。
+- SSRF 防护增加十进制 IP（如 2130706433）和八进制 IP（如 0177.0.0.1）检测。
+- 代理客户端对非 HTTPS + 非 localhost 地址输出控制台警告。
+- 样式无障碍：移除全局 `user-select: none`，改为仅在工具栏/覆盖层限制；内容区域允许文本选择。添加 `@media (forced-colors: active)` 高对比度支持和 `@media print` 打印样式。
+
+### 修复
+
+- OCR Worker 失败时清除缓存条目，避免后续请求继续使用失败的 Worker。
+- 截图 scalePng 非整数维度使用 `Math.round()` 取整。
+- mainWindow 空引用崩溃改为 null guard 保护。
+- before-quit OCR Worker 清理添加 5 秒超时，防止退出卡死。
+- display-metrics-changed 事件添加 200ms 防抖。
+- 空 segmentBuffers 截图合成添加守卫。
+- answerFormat.ts 移除冗余的双重 sqrt 输出。
+- 推理降级添加 Gemini/Anthropic 路径支持。
+- fetchModelOptions 添加 AbortSignal 参数。
+- proxyClient 默认 30 秒超时，proxyStream 默认 120 秒超时。
+- 会话轮次添加 200 上限保护。
+- 学习库 sanitizeTurn 改用 `crypto.randomUUID()` 生成 ID。
+- HistoryPanel metadata keyPoints React key 去重。
+
+### 文档
+
+- CONTRIBUTING.md 改为中文撰写。
+- 新增 LICENSE 文件（MIT）。
+- .github/pull_request_template.md 改为中文。
+- 架构文档更新 Hook 架构说明和核心界面 i18n 状态。
+- package.json 补全 author、repository、homepage、bugs、keywords、engines 元数据。
+- 新增 `.env.example` 配置模板。
+- vitest.config.ts 添加 v8 覆盖率配置。
+
+### 维护
+
+- 新增 `npm run test:coverage` 脚本。
+
 ## v1.3.0 - 2026-05-17
 
 ### 新增

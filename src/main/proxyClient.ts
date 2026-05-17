@@ -51,10 +51,16 @@ function proxyBaseUrl(settings: TutorSettings): string {
     throw new Error('请在设置中填写代理服务地址，例如 http://127.0.0.1:8787。');
   }
 
+  let parsed: URL;
+
   try {
-    new URL(baseUrl);
+    parsed = new URL(baseUrl);
   } catch {
     throw new Error('代理服务地址格式不正确，请填写类似 http://127.0.0.1:8787 的地址。');
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
+    console.warn(`[proxy] WARNING: proxy URL uses non-HTTPS protocol (${parsed.protocol}). Traffic may be unencrypted.`);
   }
 
   return baseUrl;
@@ -126,7 +132,8 @@ function reasoningEffort(settings: TutorSettings): ReasoningEffortSetting {
 
 async function proxyJson<T>(settings: TutorSettings, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const tokenSelection = requireProxyToken(settings);
-  const effectiveSignal = signal ?? AbortSignal.timeout(30_000);
+  const signals = [AbortSignal.timeout(30_000), ...(signal ? [signal] : [])];
+  const effectiveSignal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
   const response = await fetch(`${proxyBaseUrl(settings)}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
@@ -197,6 +204,8 @@ async function proxyStream(
 ): Promise<ModelAnswer> {
   throwIfAborted(signal);
   const tokenSelection = requireProxyToken(settings);
+  const streamSignals = [AbortSignal.timeout(120_000), ...(signal ? [signal] : [])];
+  const effectiveSignal = streamSignals.length === 1 ? streamSignals[0] : AbortSignal.any(streamSignals);
 
   const response = await fetch(`${proxyBaseUrl(settings)}${path}`, {
     method: 'POST',
@@ -206,7 +215,7 @@ async function proxyStream(
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(body),
-    signal
+    signal: effectiveSignal
   });
 
   if (isUnauthorizedProxyResponse(response)) {

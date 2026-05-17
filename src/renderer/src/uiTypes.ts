@@ -44,6 +44,7 @@ export interface FloatingDragState {
 
 export type UiConversationTurn = QuestionSessionTurn & {
   id: string;
+  timestamp?: string;
 };
 
 export type { StudyDifficulty, StudyItemStatus, StudyMetadata, StudyReviewGrade, StudySubject };

@@ -9,6 +9,7 @@ import type {
 } from '../../../shared/types';
 import type { ProxyHealthStatus } from '../uiTypes';
 import { CUSTOM_MODEL_VALUE, MODEL_PLACEHOLDER_VALUE } from '../constants';
+import { useTranslation } from '../i18n';
 import { useFocusTrap } from '../useFocusTrap';
 import { hasDirectApiConfig, shortcutActionLabel, shortcutBindings } from '../uiUtils';
 
@@ -63,6 +64,7 @@ export function SetupWizard({
   onPointerEnter,
   onPointerLeave
 }: SetupWizardProps): JSX.Element {
+  const { t } = useTranslation();
   const trapRef = useFocusTrap<HTMLElement>();
   const [stepIndex, setStepIndex] = useState(0);
   const isProxyConnection = settings.apiConnectionMode === 'proxy';
@@ -77,12 +79,12 @@ export function SetupWizard({
         ? settings.model.trim()
         : CUSTOM_MODEL_VALUE
       : MODEL_PLACEHOLDER_VALUE;
-  const steps = ['连接方式', isProxyConnection ? '代理连接' : '本地配置', '服务商与模型', '快捷键'];
+  const steps = [t('wizard.step.connection'), isProxyConnection ? t('wizard.step.proxySetup') : t('wizard.step.localSetup'), t('wizard.step.providerModel'), t('shortcuts.title')];
   const isLastStep = stepIndex === steps.length - 1;
 
   const modelStatusText = isModelListLoading
-    ? '正在获取模型列表...'
-    : modelListError || (modelOptions.length > 0 ? `已加载 ${modelOptions.length} 个模型` : '尚未加载模型列表');
+    ? t('settings.model.loading')
+    : modelListError || (modelOptions.length > 0 ? t('settings.model.loaded', { count: modelOptions.length }) : t('settings.model.notLoaded'));
 
   return (
     <section
@@ -97,10 +99,10 @@ export function SetupWizard({
     >
       <div className="setup-wizard-header">
         <div>
-          <strong>首次配置向导</strong>
-          <span>{appVersion ? `当前版本 ${appVersion}` : '按步骤完成基本配置'}</span>
+          <strong>{t('wizard.firstSetup')}</strong>
+          <span>{appVersion ? t('wizard.currentVersion', { version: appVersion }) : t('wizard.stepDesc')}</span>
         </div>
-        <button className="icon-button ghost" type="button" onClick={onDismiss} title="关闭">
+        <button className="icon-button ghost" type="button" onClick={onDismiss} title={t('app.close')}>
           <X size={18} />
         </button>
       </div>
@@ -121,50 +123,50 @@ export function SetupWizard({
       <div className="setup-wizard-body">
         {stepIndex === 0 && (
           <div className="setup-step">
-            <h2>选择 API 连接方式</h2>
+            <h2>{t('wizard.selectConnection')}</h2>
             <div className="setup-choice-grid">
               <button
                 className={settings.apiConnectionMode === 'direct' ? 'active' : ''}
                 type="button"
                 onClick={() => onSelectApiConnectionMode('direct')}
               >
-                <strong>本地直连</strong>
-                <span>API Key 保存在本机配置文件中，适合自己维护服务商配置。</span>
+                <strong>{t('settings.apiConnection.direct')}</strong>
+                <span>{t('wizard.directDesc')}</span>
               </button>
               <button
                 className={settings.apiConnectionMode === 'proxy' ? 'active' : ''}
                 type="button"
                 onClick={() => onSelectApiConnectionMode('proxy')}
               >
-                <strong>代理服务</strong>
-                <span>客户端只保存代理 Token，由代理端统一管理第三方 API Key。</span>
+                <strong>{t('settings.apiConnection.proxy')}</strong>
+                <span>{t('wizard.proxyDesc')}</span>
               </button>
             </div>
           </div>
         )}
         {stepIndex === 1 && !isProxyConnection && (
           <div className="setup-step">
-            <h2>检查本地配置</h2>
-            <p className="setup-copy">本地直连需要可用的第三方 API 配置。配置文件位置如下：</p>
+            <h2>{t('wizard.checkLocalConfig')}</h2>
+            <p className="setup-copy">{t('wizard.localConfigNote')}</p>
             <code>{localEnvPath}</code>
             <div className={`setup-status ${directConfigured ? '' : 'warning'}`}>
-              {directConfigured ? '已读取到本地 API 配置。' : '尚未读取到完整本地 API 配置。'}
+              {directConfigured ? t('wizard.localConfigOk') : t('wizard.localConfigMissing')}
             </div>
             <div className="setup-code-list">
-              <code>AI_BASE_URL=https://你的第三方-api地址/v1</code>
-              <code>AI_API_KEY=你的第三方 API Key</code>
+              <code>{t('directSetup.baseUrlExample')}</code>
+              <code>{t('directSetup.apiKeyExample')}</code>
             </div>
           </div>
         )}
         {stepIndex === 1 && isProxyConnection && (
           <div className="setup-step">
-            <h2>配置代理连接</h2>
+            <h2>{t('wizard.proxySetupTitle')}</h2>
             <label>
-              代理服务地址
+              {t('proxy.url')}
               <input
                 value={settings.proxyUrl}
                 onChange={(event) => onSettingsChange((current) => ({ ...current, proxyUrl: event.target.value }))}
-                placeholder="留空使用默认代理服务地址"
+                placeholder={t('proxy.urlPlaceholder')}
                 spellCheck={false}
               />
             </label>
@@ -176,35 +178,35 @@ export function SetupWizard({
                 disabled={proxyHealthStatus === 'checking'}
               >
                 {proxyHealthStatus === 'checking' ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
-                验证代理
+                {t('wizard.validateProxy')}
               </button>
               <span className={`model-status ${proxyHealthStatus === 'error' ? 'danger' : ''}`}>
                 {proxyHealthStatus === 'checking'
-                  ? '正在验证代理连接...'
+                  ? t('wizard.proxyChecking')
                   : proxyHealthStatus === 'success'
-                    ? `代理可用：${currentProxyUrl}`
-                    : proxyHealthMessage || '尚未验证代理连接。'}
+                    ? t('wizard.proxyOk', { url: currentProxyUrl })
+                    : proxyHealthMessage || t('wizard.proxyIdle')}
               </span>
             </div>
             <label>
-              代理访问 Token
+              {t('proxy.token')}
               <input
                 type="password"
                 value={settings.proxyToken}
                 onChange={(event) => onSettingsChange((current) => ({ ...current, proxyToken: event.target.value }))}
-                placeholder="首次填写后会记住；留空使用已保存 Token"
+                placeholder={t('proxy.tokenPlaceholder')}
                 autoComplete="off"
                 spellCheck={false}
               />
               <span className="model-status">
-                {hasProxyToken ? '已具备代理访问 Token。' : '使用 API 代理前需要填写开发者提供的 Token。'}
+                {hasProxyToken ? t('wizard.proxyTokenHas') : t('wizard.proxyTokenNeeded')}
               </span>
             </label>
           </div>
         )}
         {stepIndex === 2 && (
           <div className="setup-step">
-            <h2>选择服务商与模型</h2>
+            <h2>{t('wizard.selectProviderModel')}</h2>
             {isProxyConnection && (
               <button
                 className="secondary-button"
@@ -213,23 +215,23 @@ export function SetupWizard({
                 disabled={isModelListLoading}
               >
                 {isModelListLoading ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
-                刷新代理服务商
+                {t('settings.apiProvider.refreshProxy')}
               </button>
             )}
             <label>
-              API 服务商
+              {t('settings.apiProvider')}
               <select value={settings.providerId} onChange={(event) => onSelectApiProvider(event.target.value)}>
-                {apiProviders.length === 0 && <option value="">暂无可选服务商</option>}
-                {!isProxyConnection && apiProviders.length > 0 && <option value="">手动配置/不使用预设</option>}
+                {apiProviders.length === 0 && <option value="">{t('wizard.noProvider')}</option>}
+                {!isProxyConnection && apiProviders.length > 0 && <option value="">{t('settings.apiProvider.manualAlt')}</option>}
                 {apiProviders.map((provider) => (
                   <option key={provider.id} value={provider.id}>
-                    {provider.isDefault ? `${provider.name}（默认）` : provider.name}
+                    {provider.isDefault ? t('wizard.providerDefault', { name: provider.name }) : provider.name}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              模型
+              {t('settings.model')}
               <div className="model-picker">
                 <select
                   value={modelSelectValue}
@@ -253,21 +255,21 @@ export function SetupWizard({
                   }}
                 >
                   <option value={MODEL_PLACEHOLDER_VALUE} disabled>
-                    请选择模型
+                    {t('settings.model.select')}
                   </option>
                   {modelOptions.map((model) => (
                     <option key={model.id} value={model.id}>
                       {model.ownedBy ? `${model.id} · ${model.ownedBy}` : model.id}
                     </option>
                   ))}
-                  <option value={CUSTOM_MODEL_VALUE}>手动填写模型名</option>
+                  <option value={CUSTOM_MODEL_VALUE}>{t('settings.model.custom')}</option>
                 </select>
                 <button
                   className="icon-button"
                   type="button"
                   onClick={onLoadModels}
                   disabled={isModelListLoading}
-                  title="刷新模型列表"
+                  title={t('settings.model.refresh')}
                 >
                   {isModelListLoading ? <Loader2 size={18} className="spin" /> : <RefreshCw size={18} />}
                 </button>
@@ -276,7 +278,7 @@ export function SetupWizard({
                 <input
                   value={settings.model}
                   onChange={(event) => onSettingsChange((current) => ({ ...current, model: event.target.value }))}
-                  placeholder="输入服务商支持的模型名"
+                  placeholder={t('settings.model.customPlaceholder')}
                   spellCheck={false}
                 />
               )}
@@ -286,16 +288,16 @@ export function SetupWizard({
         )}
         {stepIndex === 3 && (
           <div className="setup-step">
-            <h2>确认默认快捷键</h2>
+            <h2>{t('wizard.confirmShortcuts')}</h2>
             <div className="setup-shortcut-list">
               {shortcutBindings(settings).map((shortcut) => (
                 <div key={shortcut.action}>
-                  <span>{shortcutActionLabel(shortcut.action)}</span>
-                  <kbd>{shortcut.enabled ? shortcut.key : '已停用'}</kbd>
+                  <span>{shortcutActionLabel(shortcut.action, t)}</span>
+                  <kbd>{shortcut.enabled ? shortcut.key : t('wizard.shortcutDisabled')}</kbd>
                 </div>
               ))}
             </div>
-            <p className="setup-copy">这些快捷键已默认启用，后续可以在设置中逐项修改或停用。</p>
+            <p className="setup-copy">{t('wizard.shortcutNote')}</p>
           </div>
         )}
       </div>
@@ -307,12 +309,12 @@ export function SetupWizard({
           disabled={stepIndex === 0}
         >
           <ChevronLeft size={16} />
-          上一步
+          {t('wizard.prev')}
         </button>
         {isLastStep ? (
           <button className="primary-button" type="button" onClick={onComplete} disabled={!canComplete}>
             <Check size={16} />
-            完成配置
+            {t('wizard.complete')}
           </button>
         ) : (
           <button
@@ -320,7 +322,7 @@ export function SetupWizard({
             type="button"
             onClick={() => setStepIndex((current) => Math.min(steps.length - 1, current + 1))}
           >
-            下一步
+            {t('wizard.next')}
             <ChevronRight size={16} />
           </button>
         )}

@@ -10,11 +10,13 @@ import {
   parseExplainRecognizedTextRequest,
   parseExplainRequest,
   parseFollowUpRequest,
+  parseOptionalProxyServiceUrl,
   parseOptionalSourceUrl,
   parseOptionalTutorSettings,
   parseProxyToken,
   parseRunDiagnosticsRequest,
   parseRunPromptEvalRequest,
+  parseStudyLibraryBackup,
   ValidationError
 } from '../src/shared/validators';
 
@@ -219,11 +221,15 @@ describe('ipc validators', () => {
     expect(parseBooleanFlag(true, 'debugMode')).toBe(true);
     expect(parseOptionalSourceUrl(undefined)).toBeUndefined();
     expect(parseOptionalSourceUrl('https://proxy.example/path/')).toBe('https://proxy.example/path');
+    expect(parseOptionalProxyServiceUrl('http://127.0.0.1:8787/')).toBe('http://127.0.0.1:8787');
+    expect(parseOptionalProxyServiceUrl('http://192.168.1.10:8787')).toBe('http://192.168.1.10:8787');
     expect(() => parseProxyToken(123)).toThrow(ValidationError);
     expect(() => parseBooleanFlag('true', 'debugMode')).toThrow(ValidationError);
     expect(() => parseOptionalSourceUrl('file:///tmp/a')).toThrow(/sourceUrl/);
+    expect(() => parseOptionalProxyServiceUrl('file:///tmp/a')).toThrow(/proxyUrl/);
     expect(() => parseOptionalSourceUrl('http://127.0.0.1:8787')).toThrow(/sourceUrl/);
     expect(() => parseOptionalSourceUrl('https://user:pass@proxy.example')).toThrow(/sourceUrl/);
+    expect(() => parseOptionalProxyServiceUrl('https://user:pass@proxy.example')).toThrow(/proxyUrl/);
   });
 
   it('blocks IPv6 private and reserved addresses (SSRF prevention)', () => {
@@ -255,5 +261,51 @@ describe('ipc validators', () => {
     expect(() => parseExportConversationRequest({ ...request, turns: [{ role: 'system', content: 'bad' }] })).toThrow(
       ValidationError
     );
+  });
+
+  it('validates study library backup imports deeply', () => {
+    const backup = parseStudyLibraryBackup({
+      version: 1,
+      exportedAt: '2026-05-17T00:00:00.000Z',
+      appVersion: '1.3.0',
+      itemCount: 999,
+      items: [
+        {
+          id: 'item-1',
+          title: '导数题',
+          createdAt: '2026-05-16T00:00:00.000Z',
+          updatedAt: '2026-05-16T00:00:00.000Z',
+          lastReviewedAt: '',
+          nextReviewAt: '',
+          appVersion: '1.3.0',
+          model: 'model-a',
+          providerId: 'provider-a',
+          inputMode: 'ocr-text',
+          language: 'zh-CN',
+          subject: 'math',
+          tags: ['导数'],
+          favorite: false,
+          status: 'new',
+          reviewCount: 0,
+          correctCount: 0,
+          wrongCount: 0,
+          difficulty: 'normal',
+          mistakeReason: '',
+          turns: [{ role: 'user', content: '求导' }]
+        }
+      ]
+    });
+
+    expect(backup.itemCount).toBe(1);
+    expect(backup.items[0].subject).toBe('math');
+    expect(() =>
+      parseStudyLibraryBackup({
+        version: 1,
+        exportedAt: '2026-05-17T00:00:00.000Z',
+        appVersion: '1.3.0',
+        itemCount: 1,
+        items: [{ id: 'bad' }]
+      })
+    ).toThrow(ValidationError);
   });
 });

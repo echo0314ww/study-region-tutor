@@ -4,10 +4,10 @@
 
 ## 当前版本
 
-- 当前版本：`1.3.0`。
+- 当前版本：`1.4.0`。
 - GitHub 仓库：`echo0314ww/study-region-tutor`。
-- 最近发布提交：准备 `Release v1.3.0`。
-- 当前 Unreleased 改动：暂无；v1.3.0 已归档暗色模式、i18n 基础设施、错题统计仪表盘、学习数据备份恢复、学习库概览、SSRF/代理超时/脱敏安全加固、关键 IPC runtime 校验、答案渲染安全维护、无障碍改进、模型评测取消、CI/Dependabot 和发布工作流加固。v1.2.0 已归档学习库复习队列、结构化知识点提取、学习库批量导出、模型/Prompt 评测、OCR 预处理和安全边界检查。
+- 最近发布提交：准备 `Release v1.4.0`。
+- 当前 Unreleased 改动：暂无，v1.4.0 发布材料已归档。
 
 ## 项目定位
 
@@ -41,7 +41,8 @@
 - 公告系统支持版本更新公告、私人公告和按分类分组，公告不会自动弹出。
 - Renderer 有基础 CSP；BrowserWindow 保持 `contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`。
 - 支持暗色模式（亮色、暗色、跟随系统）；CSS 全面使用语义化变量，`[data-theme="dark"]` 覆写暗色值。
-- 已建立中英文 i18n 基础设施；当前语言设置主要控制回答/导出语言，界面文案尚需逐步接入 `useTranslation()`。
+- 已建立中英文 i18n 基础设施；核心操作界面、提示和状态文案已接入翻译系统，App/hooks 可通过 `translateMessage` 使用翻译文本；历史版本向导内容仍按中文源维护。
+- App.tsx 通过 7 个自定义 Hook 拆分（useApiSettings、useExplainSession、useStudyLibrary、useCaptureFlow、useGuides、useDiagnostics、useConfirmDialog），主文件仅保留布局编排。
 - 错题统计仪表盘展示学科雷达图、知识点/易错点柱形图和统计卡片（纯 CSS + SVG 实现）。
 - 学习数据支持 JSON 备份导出和导入，导入时可选择替换、合并优先导入或合并优先本地三种策略。
 - 无障碍：焦点陷阱（公告/向导/配置向导面板）、`:focus-visible` 轮廓、`prefers-reduced-motion` 禁用动画、危险操作按钮样式区分。
@@ -102,6 +103,7 @@ npm run build
 npm run security:check
 node --check server/proxy-server.mjs
 node --check server/ngrok-dev.mjs
+node --check server/runtime-env.mjs
 node --check scripts/sync-release-notes.mjs
 ```
 

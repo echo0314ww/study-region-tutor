@@ -1,5 +1,6 @@
-import { AlertTriangle, Clipboard, Download, Star, ThumbsUp, X } from 'lucide-react';
+import { AlertTriangle, Clipboard, Download, ScanLine, Star, ThumbsUp, X } from 'lucide-react';
 import type { StudyReviewGrade } from '../uiTypes';
+import { useTranslation } from '../i18n';
 
 export interface FollowUpBarProps {
   followUpText: string;
@@ -32,6 +33,7 @@ export function FollowUpBar({
   onCopyAnswer,
   onExportAnswer
 }: FollowUpBarProps): JSX.Element {
+  const { t } = useTranslation();
   return (
     <form
       className="follow-up-bar"
@@ -44,48 +46,62 @@ export function FollowUpBar({
         value={followUpText}
         onChange={(event) => onTextChange(event.target.value)}
         onPointerDown={(event) => event.stopPropagation()}
-        placeholder="继续追问这道题..."
+        placeholder={t('followUp.placeholder')}
         disabled={isLoading}
         rows={2}
       />
       <div className="follow-up-actions">
-        <button className="secondary-button" type="submit" disabled={isLoading || !followUpText.trim()}>
-          发送追问
-        </button>
-        <button className="secondary-button" type="button" onClick={onNextQuestion} disabled={isLoading}>
-          截图下一题
-        </button>
-        <button
-          className={`secondary-button ${isCurrentFavorite ? 'active' : ''}`}
-          type="button"
-          onClick={onToggleFavorite}
-          disabled={isLoading || !canExport}
-        >
-          <Star size={16} />
-          {isCurrentFavorite ? '已收藏' : '收藏'}
-        </button>
-        <button className="secondary-button" type="button" onClick={() => onReviewCurrent('again')} disabled={isLoading || !canExport}>
-          <AlertTriangle size={16} />
-          答错了
-        </button>
-        <button className="secondary-button" type="button" onClick={() => onReviewCurrent('hard')} disabled={isLoading || !canExport}>
-          有点忘
-        </button>
-        <button className="secondary-button" type="button" onClick={() => onReviewCurrent('good')} disabled={isLoading || !canExport}>
-          <ThumbsUp size={16} />
-          答对了
-        </button>
-        <button className="secondary-button" type="button" onClick={onCopyAnswer} disabled={isLoading || !canExport}>
-          <Clipboard size={16} />
-          复制答案
-        </button>
-        <button className="secondary-button" type="button" onClick={onExportAnswer} disabled={isLoading || !canExport}>
-          <Download size={16} />
-          导出答案
-        </button>
-        <button className="icon-button ghost" type="button" onClick={onEndQuestion} disabled={isLoading} title="结束本题">
-          <X size={18} />
-        </button>
+        {/* Send group */}
+        <div className="follow-up-group">
+          <button className="primary-button" type="submit" disabled={isLoading || !followUpText.trim()}>
+            {t('followUp.sendFollowUp')}
+          </button>
+        </div>
+
+        {/* Session control group */}
+        <div className="follow-up-group">
+          <button className="secondary-button" type="button" onClick={onNextQuestion} disabled={isLoading}>
+            <ScanLine size={16} />
+            {t('followUp.nextCapture')}
+          </button>
+          <button className="icon-button ghost" type="button" onClick={onEndQuestion} disabled={isLoading} title={t('result.endQuestion')}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Review group — segmented control */}
+        <div className="follow-up-group">
+          <div className="review-segment">
+            <button type="button" onClick={() => onReviewCurrent('again')} disabled={isLoading || !canExport} title={t('studyItem.reviewWrong')}>
+              <AlertTriangle size={14} />
+            </button>
+            <button type="button" onClick={() => onReviewCurrent('hard')} disabled={isLoading || !canExport} title={t('studyItem.reviewHard')}>
+              {t('studyItem.reviewHard')}
+            </button>
+            <button type="button" onClick={() => onReviewCurrent('good')} disabled={isLoading || !canExport} title={t('studyItem.reviewGood')}>
+              <ThumbsUp size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Tools group — right-aligned icon buttons */}
+        <div className="follow-up-group tools-group">
+          <button
+            className={`icon-button${isCurrentFavorite ? ' active' : ''}`}
+            type="button"
+            onClick={onToggleFavorite}
+            disabled={isLoading || !canExport}
+            title={isCurrentFavorite ? t('studyItem.unfavorite') : t('studyItem.favorite')}
+          >
+            <Star size={16} />
+          </button>
+          <button className="icon-button" type="button" onClick={onCopyAnswer} disabled={isLoading || !canExport} title={t('result.copyAnswer')}>
+            <Clipboard size={16} />
+          </button>
+          <button className="icon-button" type="button" onClick={onExportAnswer} disabled={isLoading || !canExport} title={t('result.exportAnswer')}>
+            <Download size={16} />
+          </button>
+        </div>
         {exportStatus && <span className="follow-up-status">{exportStatus}</span>}
       </div>
     </form>

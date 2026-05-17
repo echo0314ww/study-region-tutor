@@ -1,10 +1,29 @@
 {
   "name": "study-region-tutor",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "A cross-platform desktop study assistant that explains selected screen regions.",
   "main": "out/main/index.js",
-  "author": "",
+  "author": "Study Region Tutor Contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/echo0314ww/study-region-tutor.git"
+  },
+  "homepage": "https://github.com/echo0314ww/study-region-tutor#readme",
+  "bugs": {
+    "url": "https://github.com/echo0314ww/study-region-tutor/issues"
+  },
+  "keywords": [
+    "electron",
+    "study",
+    "tutor",
+    "ocr",
+    "screen-capture",
+    "ai"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,12 +32,13 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "docs:check": "node scripts/check-docs.mjs",
     "security:check": "node scripts/check-security-boundaries.mjs",
     "validate": "npm run typecheck && npm run lint && npm run test && npm run docs:check && npm run security:check",
     "build": "electron-vite build",
     "proxy:dev": "node server/proxy-server.mjs",
-    "proxy:check": "node --check server/proxy-server.mjs",
+    "proxy:check": "node --check server/proxy-server.mjs && node --check server/runtime-env.mjs",
     "ngrok:dev": "node server/ngrok-dev.mjs",
     "dist": "npm run build && electron-builder --win nsis",
     "publish:win": "npm run build && electron-builder --win nsis --publish always"
@@ -39,6 +59,7 @@
     "@typescript-eslint/eslint-plugin": "^8.18.2",
     "@typescript-eslint/parser": "^8.18.2",
     "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",

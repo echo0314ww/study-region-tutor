@@ -1,6 +1,7 @@
 import { Copy } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ApiMode, ApiProviderType } from '../../../shared/types';
+import { useTranslation } from '../i18n';
 
 export interface ProviderConfigGeneratorProps {
   onCopy: (text: string) => void;
@@ -15,6 +16,7 @@ function providerEnvKey(id: string): string {
 }
 
 export function ProviderConfigGenerator({ onCopy }: ProviderConfigGeneratorProps): JSX.Element {
+  const { t } = useTranslation();
   const [providerId, setProviderId] = useState('my-provider');
   const [providerName, setProviderName] = useState('My Provider');
   const [baseUrl, setBaseUrl] = useState('https://example.com/v1');
@@ -43,8 +45,8 @@ export function ProviderConfigGenerator({ onCopy }: ProviderConfigGeneratorProps
   return (
     <div className="provider-generator-page">
       <div className="provider-generator-header">
-        <strong>Provider 配置生成器</strong>
-        <span>生成多服务商 `.env.local` 配置片段；多个服务商时把 AI_PROVIDERS 改成逗号分隔列表。</span>
+        <strong>{t('settings.providerGenerator')}</strong>
+        <span>{t('providerGen.desc')}</span>
       </div>
       <div className="provider-generator-grid">
         <label>
@@ -52,7 +54,7 @@ export function ProviderConfigGenerator({ onCopy }: ProviderConfigGeneratorProps
           <input value={providerId} onChange={(event) => setProviderId(event.target.value)} spellCheck={false} />
         </label>
         <label>
-          显示名称
+          {t('providerGen.displayName')}
           <input value={providerName} onChange={(event) => setProviderName(event.target.value)} spellCheck={false} />
         </label>
         <label>
@@ -64,16 +66,16 @@ export function ProviderConfigGenerator({ onCopy }: ProviderConfigGeneratorProps
           <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} spellCheck={false} />
         </label>
         <label>
-          接口模式
+          {t('providerGen.apiMode')}
           <select value={apiMode} onChange={(event) => setApiMode(event.target.value as ApiMode)}>
             <option value="chat-completions">Chat Completions</option>
             <option value="responses">Responses</option>
           </select>
         </label>
         <label>
-          服务商类型
+          {t('providerGen.providerType')}
           <select value={apiProviderType} onChange={(event) => setApiProviderType(event.target.value as ApiProviderType)}>
-            <option value="openai-compatible">OpenAI 兼容</option>
+            <option value="openai-compatible">{t('providerGen.openaiCompatible')}</option>
             <option value="gemini">Gemini</option>
             <option value="anthropic">Anthropic</option>
           </select>
@@ -81,13 +83,13 @@ export function ProviderConfigGenerator({ onCopy }: ProviderConfigGeneratorProps
       </div>
       <label className="toggle-row">
         <input type="checkbox" checked={makeDefault} onChange={(event) => setMakeDefault(event.target.checked)} />
-        设为默认服务商
+        {t('providerGen.makeDefault')}
       </label>
       <pre className="provider-snippet">{snippet}</pre>
       <div className="settings-action-row">
         <button className="secondary-button" type="button" onClick={() => onCopy(snippet)}>
           <Copy size={16} />
-          复制配置片段
+          {t('providerGen.copySnippet')}
         </button>
       </div>
     </div>

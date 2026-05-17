@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, BookOpen, Check, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from '../i18n';
 import type { GuideDefinition, GuideKind } from '../uiTypes';
 import { useFocusTrap } from '../useFocusTrap';
 
@@ -20,6 +21,7 @@ export function GuidePanel({
   onPointerEnter,
   onPointerLeave
 }: GuidePanelProps): JSX.Element {
+  const { t } = useTranslation();
   const trapRef = useFocusTrap<HTMLElement>();
   const [stepIndex, setStepIndex] = useState(0);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -55,7 +57,7 @@ export function GuidePanel({
           <strong>{guide.title}</strong>
           <span>{guide.subtitle}</span>
         </div>
-        <button className="icon-button ghost" type="button" onClick={onClose} title="关闭">
+        <button className="icon-button ghost" type="button" onClick={onClose} title={t('app.close')}>
           <X size={18} />
         </button>
       </div>
@@ -65,21 +67,21 @@ export function GuidePanel({
           type="button"
           onClick={() => onSwitchGuide('product')}
         >
-          整体功能向导
+          {t('guide.productTitle')}
         </button>
         <button
           className={guide.kind === 'release' ? 'active' : ''}
           type="button"
           onClick={() => onSwitchGuide('release')}
         >
-          本版本新增向导
+          {t('guide.releaseTitle')}
         </button>
         <button
           className={guide.kind === 'history' ? 'active' : ''}
           type="button"
           onClick={() => onSwitchGuide('history')}
         >
-          历史版本向导回顾
+          {t('guide.historyTitle')}
         </button>
       </div>
       {guide.kind === 'history' && historyVersions.length > 0 && (
@@ -110,7 +112,7 @@ export function GuidePanel({
                   key={step.title}
                   className={index === stepIndex ? 'active' : ''}
                   type="button"
-                  aria-label={`查看第 ${index + 1} 步`}
+                  aria-label={t('guide.viewStep', { step: index + 1 })}
                   onClick={() => setStepIndex(index)}
                 />
               ))}
@@ -128,17 +130,17 @@ export function GuidePanel({
       ) : (
         <div className="guide-empty">
           <BookOpen size={24} />
-          <strong>{guide.kind === 'history' ? '暂无历史版本向导' : '暂无本版本新增向导'}</strong>
+          <strong>{guide.kind === 'history' ? t('guide.noHistory') : t('guide.noRelease')}</strong>
           <span>
             {guide.kind === 'history'
-              ? '当前版本之前还没有可回顾的新增功能向导。'
-              : '接口已预留，后续版本可以在这里展示新增功能和迁移说明。'}
+              ? t('guide.noHistoryDesc')
+              : t('guide.noReleaseDesc')}
           </span>
         </div>
       )}
       <div className="guide-actions">
         <button className="secondary-button" type="button" onClick={() => onDismiss(guide.kind)}>
-          {guide.kind === 'history' ? '关闭回顾' : '跳过本次'}
+          {guide.kind === 'history' ? t('guide.dismissHistory') : t('guide.skip')}
         </button>
         {hasSteps && (
           <>
@@ -149,7 +151,7 @@ export function GuidePanel({
               disabled={stepIndex === 0}
             >
               <ArrowLeft size={16} />
-              上一步
+              {t('guide.prev')}
             </button>
             <button
               className="primary-button"
@@ -164,7 +166,7 @@ export function GuidePanel({
               }}
             >
               {isLastStep ? <Check size={16} /> : <ArrowRight size={16} />}
-              {isLastStep ? '完成' : '下一步'}
+              {isLastStep ? t('guide.done') : t('guide.next')}
             </button>
           </>
         )}

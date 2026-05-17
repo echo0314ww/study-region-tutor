@@ -35,6 +35,11 @@ function workerForLanguage(language: OcrLanguage): CachedWorker {
     }).then((worker) => {
       console.log(`[ocr] initialized ${language} worker in ${nowMs() - startedAt}ms`);
       return worker;
+    }).catch((error) => {
+      if (workerCache.get(language) === entry) {
+        workerCache.delete(language);
+      }
+      throw error;
     }),
     queue: Promise.resolve()
   };
@@ -134,8 +139,8 @@ function clampByte(value: number): number {
 
 function scalePng(source: PNG, factor: number): PNG {
   const target = new PNG({
-    width: source.width * factor,
-    height: source.height * factor
+    width: Math.round(source.width * factor),
+    height: Math.round(source.height * factor)
   });
 
   for (let y = 0; y < target.height; y += 1) {

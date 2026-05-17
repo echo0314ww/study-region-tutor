@@ -1,30 +1,34 @@
 import { AlertTriangle, CheckCircle2, Clipboard, Info, XCircle } from 'lucide-react';
 import type { DiagnosticResult, DiagnosticStatus } from '../../../shared/types';
+import type { MessageKey } from '../i18n';
+import { useTranslation } from '../i18n';
 
-export function diagnosticReportText(result: DiagnosticResult): string {
+type TranslateFunction = (key: MessageKey, params?: Record<string, string | number>) => string;
+
+export function diagnosticReportText(result: DiagnosticResult, t: TranslateFunction): string {
   const lines = [
-    `Study Region Tutor 诊断报告`,
-    `生成时间：${result.generatedAt}`,
-    `应用版本：${result.appVersion || '未知'}`,
-    `连接模式：${result.mode === 'proxy' ? '代理服务' : '本地直连'}`,
-    `整体结果：${result.ok ? '通过' : '存在需要处理的问题'}`,
+    t('diagnostics.reportTitle'),
+    t('diagnostics.generatedAt', { time: result.generatedAt }),
+    t('diagnostics.appVersion', { version: result.appVersion || t('proxy.admin.unknown') }),
+    t('diagnostics.connectionMode', { mode: result.mode === 'proxy' ? t('diagnostics.proxyService') : t('diagnostics.directConnect') }),
+    t('diagnostics.overallResult', { result: result.ok ? t('diagnostics.passed') : t('diagnostics.hasIssues') }),
     ''
   ];
 
   for (const item of result.steps) {
-    lines.push(`【${item.status.toUpperCase()}】${item.title}`);
-    lines.push(`结果：${item.summary}`);
+    lines.push(`[${item.status.toUpperCase()}] ${item.title}`);
+    lines.push(t('diagnostics.result', { summary: item.summary }));
 
     if (item.cause) {
-      lines.push(`可能原因：${item.cause}`);
+      lines.push(t('diagnostics.possibleCause', { cause: item.cause }));
     }
 
     if (item.solution) {
-      lines.push(`处理建议：${item.solution}`);
+      lines.push(t('diagnostics.suggestion', { solution: item.solution }));
     }
 
     if (item.technicalDetail) {
-      lines.push(`技术细节：${item.technicalDetail}`);
+      lines.push(t('diagnostics.technicalDetail', { detail: item.technicalDetail }));
     }
 
     lines.push('');
@@ -51,16 +55,18 @@ export interface DiagnosticReportProps {
 }
 
 export function DiagnosticReport({ result, onCopy }: DiagnosticReportProps): JSX.Element {
+  const { t } = useTranslation();
+
   return (
     <div className={`diagnostic-report ${result.ok ? '' : 'has-failures'}`}>
       <div className="diagnostic-summary">
         <div>
           <Info size={17} />
-          <strong>{result.ok ? '诊断通过' : '诊断发现问题，解决问题后请重新打开应用'}</strong>
+          <strong>{result.ok ? t('diagnostics.passedSummary') : t('diagnostics.failedSummary')}</strong>
         </div>
-        <button className="secondary-button" type="button" onClick={() => onCopy(diagnosticReportText(result))}>
+        <button className="secondary-button" type="button" onClick={() => onCopy(diagnosticReportText(result, t))}>
           <Clipboard size={16} />
-          复制诊断报告
+          {t('diagnostics.copyReport')}
         </button>
       </div>
       <div className="diagnostic-steps">
@@ -69,19 +75,19 @@ export function DiagnosticReport({ result, onCopy }: DiagnosticReportProps): JSX
             <summary>
               {statusIcon(item.status)}
               <span>{item.title}</span>
-              <em>{item.status === 'pass' ? '通过' : item.status === 'warn' ? '提醒' : '失败'}</em>
+              <em>{item.status === 'pass' ? t('diagnostics.pass') : item.status === 'warn' ? t('diagnostics.warn') : t('diagnostics.fail')}</em>
             </summary>
             <div>
               <p>{item.summary}</p>
               {item.cause && (
                 <p>
-                  <strong>可能原因：</strong>
+                  <strong>{t('diagnostics.possibleCause', { cause: '' }).replace(/\s*$/, '')}</strong>
                   {item.cause}
                 </p>
               )}
               {item.solution && (
                 <p>
-                  <strong>处理建议：</strong>
+                  <strong>{t('diagnostics.suggestion', { solution: '' }).replace(/\s*$/, '')}</strong>
                   {item.solution}
                 </p>
               )}

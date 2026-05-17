@@ -7,15 +7,12 @@ import {
   mergeStudyItems,
   studyDashboardStats,
   studyLibraryStats,
-  STUDY_STATUS_LABELS,
   STUDY_STATUSES,
-  STUDY_SUBJECT_LABELS,
   STUDY_SUBJECTS,
-  STUDY_DIFFICULTY_LABELS,
-  STUDY_REVIEW_GRADE_LABELS,
   tagsFromText
 } from '../studyLibrary';
 import type { StudyBackupMergeStrategy, StudyLibraryBackup, StudyLibraryExportFormat } from '../../../shared/types';
+import { useTranslation } from '../i18n';
 
 interface StudyItemDraft {
   title?: string;
@@ -44,24 +41,6 @@ function formatTime(value: string): string {
   }
 
   return date.toLocaleString('zh-CN', { hour12: false });
-}
-
-function resultCountText(total: number, filtered: number): string {
-  return total === filtered ? `${total} 条记录` : `${filtered} / ${total} 条记录`;
-}
-
-function formatDate(value: string): string {
-  if (!value) {
-    return '未安排';
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleDateString('zh-CN');
 }
 
 function draftPatch(draft: StudyItemDraft): StudyItemPatch {
@@ -94,6 +73,7 @@ export function HistoryPanel({
   onReplaceItems,
   exportStatus
 }: HistoryPanelProps): JSX.Element {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [subject, setSubject] = useState<StudySubject | 'all'>('all');
   const [status, setStatus] = useState<StudyItemStatus | 'all'>('all');
@@ -146,7 +126,7 @@ export function HistoryPanel({
   );
 
   const handleExportBackup = useCallback(async (): Promise<void> => {
-    setBackupStatus('正在导出...');
+    setBackupStatus(t('studyLibrary.exporting'));
 
     try {
       const backup: StudyLibraryBackup = {
@@ -160,20 +140,20 @@ export function HistoryPanel({
         }))
       };
       const result = await window.studyTutor.exportStudyBackup(backup);
-      setBackupStatus(result.saved ? `已导出到 ${result.path}` : '已取消导出');
+      setBackupStatus(result.saved ? t('studyLibrary.exported', { path: result.path || '' }) : t('studyLibrary.exportCancelled'));
     } catch (error) {
-      setBackupStatus(`导出失败: ${error instanceof Error ? error.message : String(error)}`);
+      setBackupStatus(t('studyLibrary.exportFailed', { error: error instanceof Error ? error.message : String(error) }));
     }
-  }, [appVersion, studyItems]);
+  }, [appVersion, studyItems, t]);
 
   const handleImportBackup = useCallback(async (): Promise<void> => {
-    setBackupStatus('正在导入...');
+    setBackupStatus(t('studyLibrary.importing'));
 
     try {
       const result = await window.studyTutor.importStudyBackup();
 
       if (!result.imported || !result.backup) {
-        setBackupStatus('已取消导入');
+        setBackupStatus(t('studyLibrary.importCancelled'));
         return;
       }
 
@@ -188,11 +168,11 @@ export function HistoryPanel({
 
       const merged = mergeStudyItems(studyItems, importedItems, mergeStrategy);
       onReplaceItems(merged);
-      setBackupStatus(`已导入 ${result.backup.itemCount} 条记录（${mergeStrategy === 'replace' ? '替换' : '合并'}模式）`);
+      setBackupStatus(t('studyLibrary.imported', { count: result.backup.itemCount, mode: mergeStrategy === 'replace' ? t('studyLibrary.mergeReplace') : t('studyLibrary.mergePreferImported') }));
     } catch (error) {
-      setBackupStatus(`导入失败: ${error instanceof Error ? error.message : String(error)}`);
+      setBackupStatus(t('studyLibrary.importFailed', { error: error instanceof Error ? error.message : String(error) }));
     }
-  }, [mergeStrategy, onReplaceItems, studyItems]);
+  }, [mergeStrategy, onReplaceItems, studyItems, t]);
 
   useEffect(() => {
     const entries = Object.entries(drafts);
@@ -220,59 +200,79 @@ export function HistoryPanel({
     return () => window.clearTimeout(timer);
   }, [drafts, onUpdate]);
 
+  const formatDate = (value: string): string => {
+    if (!value) {
+      return t('studyLibrary.notScheduled');
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return date.toLocaleDateString('zh-CN');
+  };
+
+  const resultCountText = (total: number, filtered: number): string => {
+    return total === filtered
+      ? t('studyLibrary.count', { count: total })
+      : t('studyLibrary.filteredCount', { filtered, total });
+  };
+
   return (
     <div className="history-page">
       <div className="history-page-header">
         <div>
-          <strong>学习库</strong>
-          <span>自动保存讲解文本、学科、标签和掌握状态；不保存截图、API Key 或代理 Token。</span>
+          <strong>{t('studyLibrary.title')}</strong>
+          <span>{t('studyLibrary.subtitle')}</span>
         </div>
         <button className="danger-button" type="button" onClick={onClear} disabled={studyItems.length === 0}>
           <Trash2 size={16} />
-          清空
+          {t('studyLibrary.clearAll')}
         </button>
       </div>
       <div className="history-stats">
-        <span>总计 {stats.total}</span>
-        <span>待处理/复习 {stats.due}</span>
-        <span>新题 {stats.newCount}</span>
-        <span>复习中 {stats.reviewing}</span>
-        <span>已掌握 {stats.mastered}</span>
-        <span>错题 {stats.mistakes}</span>
+        <span>{t('stats.total', { count: stats.total })}</span>
+        <span>{t('stats.due', { count: stats.due })}</span>
+        <span>{t('stats.new', { count: stats.newCount })}</span>
+        <span>{t('stats.reviewing', { count: stats.reviewing })}</span>
+        <span>{t('stats.mastered', { count: stats.mastered })}</span>
+        <span>{t('stats.mistakes', { count: stats.mistakes })}</span>
       </div>
       <div className="study-dashboard">
         <div className="study-dashboard-card">
-          <span>掌握率</span>
+          <span>{t('dashboard.masteredRate')}</span>
           <strong>{dashboardStats.masteredRate}%</strong>
         </div>
         <div className="study-dashboard-card">
-          <span>近 7 天复习</span>
+          <span>{t('dashboard.reviewedLast7Days')}</span>
           <strong>{dashboardStats.reviewedLast7Days}</strong>
         </div>
         <div className="study-dashboard-card">
-          <span>学科分布</span>
+          <span>{t('dashboard.subjectDistribution')}</span>
           <strong>
             {dashboardStats.subjectCounts.length
               ? dashboardStats.subjectCounts
-                  .map((item) => `${STUDY_SUBJECT_LABELS[item.subject]} ${item.count}`)
+                  .map((item) => `${t(`subject.${item.subject}` as const)} ${item.count}`)
                   .join(' / ')
-              : '暂无'}
+              : t('dashboard.noData')}
           </strong>
         </div>
         <div className="study-dashboard-card wide">
-          <span>高频知识点</span>
+          <span>{t('dashboard.topKnowledgePoints')}</span>
           <strong>
             {dashboardStats.topKnowledgePoints.length
               ? dashboardStats.topKnowledgePoints.map((item) => `${item.label} ${item.count}`).join(' / ')
-              : '等待结构化提取'}
+              : t('dashboard.awaitingExtraction')}
           </strong>
         </div>
         <div className="study-dashboard-card wide">
-          <span>常见易错点</span>
+          <span>{t('dashboard.topMistakeTraps')}</span>
           <strong>
             {dashboardStats.topMistakeTraps.length
               ? dashboardStats.topMistakeTraps.map((item) => `${item.label} ${item.count}`).join(' / ')
-              : '等待结构化提取'}
+              : t('dashboard.awaitingExtraction')}
           </strong>
         </div>
       </div>
@@ -282,23 +282,23 @@ export function HistoryPanel({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索题目、答案、标签或模型"
+            placeholder={t('studyLibrary.searchPlaceholder')}
             spellCheck={false}
           />
         </label>
         <select value={subject} onChange={(event) => setSubject(event.target.value as StudySubject | 'all')}>
-          <option value="all">全部学科</option>
+          <option value="all">{t('studyLibrary.allSubjects')}</option>
           {STUDY_SUBJECTS.map((item) => (
             <option key={item} value={item}>
-              {STUDY_SUBJECT_LABELS[item]}
+              {t(`subject.${item}` as const)}
             </option>
           ))}
         </select>
         <select value={status} onChange={(event) => setStatus(event.target.value as StudyItemStatus | 'all')}>
-          <option value="all">全部状态</option>
+          <option value="all">{t('studyLibrary.allStatuses')}</option>
           {STUDY_STATUSES.map((item) => (
             <option key={item} value={item}>
-              {STUDY_STATUS_LABELS[item]}
+              {t(`status.${item}` as const)}
             </option>
           ))}
         </select>
@@ -308,7 +308,7 @@ export function HistoryPanel({
             checked={favoritesOnly}
             onChange={(event) => setFavoritesOnly(event.target.checked)}
           />
-          只看收藏
+          {t('studyLibrary.showFavorites')}
         </label>
         <label className="history-favorite-filter">
           <input
@@ -316,7 +316,7 @@ export function HistoryPanel({
             checked={dueOnly}
             onChange={(event) => setDueOnly(event.target.checked)}
           />
-          待处理/复习
+          {t('studyLibrary.showDue')}
         </label>
         <label className="history-favorite-filter">
           <input
@@ -324,10 +324,10 @@ export function HistoryPanel({
             checked={mistakesOnly}
             onChange={(event) => setMistakesOnly(event.target.checked)}
           />
-          只看错题
+          {t('studyLibrary.showMistakes')}
         </label>
         <button className="secondary-button" type="button" onClick={clearFilters} disabled={!hasActiveFilters}>
-          清空筛选
+          {t('studyLibrary.clearFilters')}
         </button>
       </div>
       <div className="history-export-row">
@@ -336,32 +336,29 @@ export function HistoryPanel({
           type="button"
           onClick={() => onExport('markdown', filteredItems)}
           disabled={filteredItems.length === 0}
-          title="导出为可阅读、可归档的 Markdown 文档"
         >
           <Download size={16} />
-          导出当前筛选 Markdown
+          {t('studyLibrary.exportMarkdown')}
         </button>
         <button
           className="secondary-button"
           type="button"
           onClick={() => onExport('anki-csv', filteredItems)}
           disabled={filteredItems.length === 0}
-          title="导出为 Anki 可导入的 CSV"
         >
           <Download size={16} />
-          导出当前筛选 Anki CSV
+          {t('studyLibrary.exportAnki')}
         </button>
         <button
           className="secondary-button"
           type="button"
           onClick={() => onExport('obsidian', filteredItems)}
           disabled={filteredItems.length === 0}
-          title="导出为适合 Obsidian 笔记库的 Markdown"
         >
           <Download size={16} />
-          导出当前筛选 Obsidian
+          {t('studyLibrary.exportObsidian')}
         </button>
-        <span className="model-status">将导出当前筛选的 {filteredItems.length} 条</span>
+        <span className="model-status">{t('studyLibrary.exportWillExport', { count: filteredItems.length })}</span>
         {exportStatus && <span className="model-status">{exportStatus}</span>}
       </div>
       <div className="history-export-row">
@@ -370,50 +367,47 @@ export function HistoryPanel({
           type="button"
           onClick={handleExportBackup}
           disabled={studyItems.length === 0}
-          title="导出全部学习数据为 JSON 备份文件"
         >
           <Download size={16} />
-          导出备份
+          {t('studyLibrary.exportBackup')}
         </button>
         <select
           value={mergeStrategy}
           onChange={(event) => setMergeStrategy(event.target.value as StudyBackupMergeStrategy)}
-          title="导入时的合并策略"
         >
-          <option value="merge-prefer-imported">合并（优先导入数据）</option>
-          <option value="merge-prefer-local">合并（优先本地数据）</option>
-          <option value="replace">替换（覆盖本地）</option>
+          <option value="merge-prefer-imported">{t('studyLibrary.mergePreferImported')}</option>
+          <option value="merge-prefer-local">{t('studyLibrary.mergePreferLocal')}</option>
+          <option value="replace">{t('studyLibrary.mergeReplace')}</option>
         </select>
         <button
           className="secondary-button"
           type="button"
           onClick={handleImportBackup}
-          title="从 JSON 备份文件导入学习数据"
         >
           <Upload size={16} />
-          导入备份
+          {t('studyLibrary.importBackup')}
         </button>
         {backupStatus && <span className="model-status">{backupStatus}</span>}
       </div>
       <div className="history-count">{resultCountText(studyItems.length, filteredItems.length)}</div>
       {studyItems.length === 0 ? (
-        <div className="empty-state">暂无学习记录。完成一次截图讲解后会自动加入学习库。</div>
+        <div className="empty-state">{t('studyLibrary.empty')}</div>
       ) : filteredItems.length === 0 ? (
-        <div className="empty-state">没有匹配的学习记录。</div>
+        <div className="empty-state">{t('studyLibrary.noMatch')}</div>
       ) : (
         <div className="history-list">
-          {filteredItems.map((item) => (
-            <article className={`history-item ${item.favorite ? 'favorite' : ''}`} key={item.id}>
+          {filteredItems.map((item, i) => (
+            <article className={`history-item ${item.favorite ? 'favorite' : ''}`} key={item.id} style={{ '--item-index': i } as React.CSSProperties}>
               <button className="history-item-open" type="button" onClick={() => onRestore(item)}>
                 <strong>{item.title}</strong>
                 <span>
                   <Clock size={13} />
-                  {formatTime(item.updatedAt)} · {item.model || '未记录模型'}
+                  {formatTime(item.updatedAt)} · {item.model || t('studyLibrary.modelUnknown')}
                 </span>
                 <span>
                   <CalendarClock size={13} />
-                  下次复习：{formatDate(item.nextReviewAt)}
-                  {isStudyItemDue(item) ? ' · 已到期' : ''}
+                  {t('studyLibrary.nextReview', { date: formatDate(item.nextReviewAt) })}
+                  {isStudyItemDue(item) ? ` · ${t('studyLibrary.due')}` : ''}
                 </span>
               </button>
               <div className="history-item-controls">
@@ -421,27 +415,27 @@ export function HistoryPanel({
                   className={`icon-button ghost ${item.favorite ? 'active' : ''}`}
                   type="button"
                   onClick={() => onUpdate(item.id, { favorite: !item.favorite })}
-                  title={item.favorite ? '取消收藏' : '收藏'}
+                  title={item.favorite ? t('studyItem.unfavorite') : t('studyItem.favorite')}
                 >
                   <Star size={16} />
                 </button>
-                <button className="icon-button ghost" type="button" onClick={() => onDelete(item.id)} title="删除">
+                <button className="icon-button ghost" type="button" onClick={() => onDelete(item.id)} title={t('app.delete')}>
                   <Trash2 size={16} />
                 </button>
               </div>
               <div className="history-review-row">
                 {(['again', 'hard', 'good', 'easy'] as StudyReviewGrade[]).map((grade) => (
                   <button className="secondary-button" type="button" key={grade} onClick={() => onReview(item.id, grade)}>
-                    {STUDY_REVIEW_GRADE_LABELS[grade]}
+                    {t(`studyItem.review${grade.charAt(0).toUpperCase()}${grade.slice(1)}` as 'studyItem.reviewEasy' | 'studyItem.reviewGood' | 'studyItem.reviewHard' | 'studyItem.reviewWrong')}
                   </button>
                 ))}
                 <span>
-                  {STUDY_DIFFICULTY_LABELS[item.difficulty]} · 复习 {item.reviewCount} 次 · 对 {item.correctCount} / 错 {item.wrongCount}
+                  {t('studyItem.reviewCount', { difficulty: t(`difficulty.${item.difficulty}` as const), reviewCount: item.reviewCount, correctCount: item.correctCount, wrongCount: item.wrongCount })}
                 </span>
               </div>
               <div className="history-item-fields">
                 <label>
-                  标题
+                  {t('studyItem.title')}
                   <input
                     value={drafts[item.id]?.title ?? item.title}
                     onBlur={() => commitDraft(item.id)}
@@ -450,58 +444,58 @@ export function HistoryPanel({
                   />
                 </label>
                 <label>
-                  学科
+                  {t('studyItem.subject')}
                   <select
                     value={item.subject}
                     onChange={(event) => onUpdate(item.id, { subject: event.target.value as StudySubject })}
                   >
                     {STUDY_SUBJECTS.map((subjectItem) => (
                       <option key={subjectItem} value={subjectItem}>
-                        {STUDY_SUBJECT_LABELS[subjectItem]}
+                        {t(`subject.${subjectItem}` as const)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label>
-                  状态
+                  {t('studyItem.status')}
                   <select
                     value={item.status}
                     onChange={(event) => onUpdate(item.id, { status: event.target.value as StudyItemStatus })}
                   >
                     {STUDY_STATUSES.map((statusItem) => (
                       <option key={statusItem} value={statusItem}>
-                        {STUDY_STATUS_LABELS[statusItem]}
+                        {t(`status.${statusItem}` as const)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="history-tags-field">
-                  标签
+                  {t('studyItem.tags')}
                   <input
                     value={drafts[item.id]?.tagsText ?? item.tags.join(', ')}
                     onBlur={() => commitDraft(item.id)}
                     onChange={(event) => updateDraft(item.id, { tagsText: event.target.value })}
-                    placeholder="逗号分隔"
+                    placeholder={t('studyItem.tagsPlaceholder')}
                     spellCheck={false}
                   />
                 </label>
                 <label className="history-tags-field">
-                  易错原因
+                  {t('studyItem.mistakeReason')}
                   <input
                     value={drafts[item.id]?.mistakeReason ?? item.mistakeReason}
                     onBlur={() => commitDraft(item.id)}
                     onChange={(event) => updateDraft(item.id, { mistakeReason: event.target.value })}
-                    placeholder="例如：符号看错、公式选择错误、单位遗漏"
+                    placeholder={t('studyItem.mistakeReasonPlaceholder')}
                     spellCheck={false}
                   />
                 </label>
               </div>
               {item.metadata && (
                 <div className="history-metadata">
-                  <span>{item.metadata.topic || '未识别知识点'}</span>
-                  <span>{item.metadata.questionType || '未识别题型'}</span>
-                  {item.metadata.keyPoints.map((point) => (
-                    <span key={point}>{point}</span>
+                  <span>{item.metadata.topic || t('studyLibrary.topicUnknown')}</span>
+                  <span>{item.metadata.questionType || t('studyLibrary.questionTypeUnknown')}</span>
+                  {item.metadata.keyPoints.map((point, idx) => (
+                    <span key={`${point}-${idx}`}>{point}</span>
                   ))}
                 </div>
               )}

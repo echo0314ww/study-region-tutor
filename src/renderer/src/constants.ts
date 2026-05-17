@@ -6,7 +6,7 @@ export const MIN_RESULT_PANEL_WIDTH = 320;
 export const MIN_RESULT_PANEL_HEIGHT = 220;
 export const DRAG_CAPTURE_CANCEL_DISTANCE = 8;
 export const HANDLE_NAMES: DragMode[] = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
-export const BUILT_IN_PROXY_URL = 'https://mariyah-trailless-graig.ngrok-free.dev';
+export const BUILT_IN_PROXY_URL = '';
 export const ANNOUNCEMENT_HEALTH_RETRY_MS = 15000;
 
 export const DEFAULT_REGION: RegionBounds = {

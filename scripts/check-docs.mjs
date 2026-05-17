@@ -159,6 +159,42 @@ function scanForSensitiveValues() {
   pass('documentation sensitive-value scan completed');
 }
 
+function scanForReplacementCharacters() {
+  const rootsToScan = [
+    'README.md',
+    'PROJECT_CONTEXT.md',
+    'CHANGELOG.md',
+    'RELEASE_NOTES.md',
+    'CONTRIBUTING.md',
+    'docs',
+    'src',
+    'server',
+    'scripts',
+    'tests',
+    '.github'
+  ];
+  const textFilePattern = /\.(?:md|json|env|txt|ts|tsx|mjs|js|yml|yaml|css|html)$/i;
+  const files = rootsToScan
+    .flatMap((path) => (existsSync(projectPath(path)) ? listFiles(path) : []))
+    .filter((path) => textFilePattern.test(path));
+  const mojibakePattern =
+    /(?:\u00c3.|\u00c2.|\u6d93\u20ac|\u6d93\ue15f\u6783|\u9359\u6828\u79f7|\u7ead\ue1bf\ue17b|\u93b4\ue044\u6d58|\u7481\u5267\u7586|\u8930\u64b3\u58a0|\u9417\u581f\u6e70|\u934f\ue100\u61a1|\u93c2\u56e8\u3002|\u7ecb\u5b2a\u7c2d|\u9354\u72ba\u6d47|\u6434\u65c2\u6564|\u7487\u950b\u7730|\u6769\u65bf\u6d16|\u5bb8\u63d2)/;
+
+  for (const file of files) {
+    const text = readText(file);
+
+    if (text.includes('\uFFFD')) {
+      fail(`${file} contains Unicode replacement character`);
+    }
+
+    if (mojibakePattern.test(text)) {
+      fail(`${file} appears to contain mojibake text`);
+    }
+  }
+
+  pass('text encoding artifact scan completed');
+}
+
 const packageJson = readJson('package.json');
 const version = packageJson.version;
 const releaseId = `release-v${version}`;
@@ -189,6 +225,10 @@ expectContains('PROJECT_CONTEXT.md', '当前 Unreleased 改动');
 
 expectFile('.editorconfig');
 expectFile('.gitattributes');
+expectFile('.env.example');
+expectFile('CONTRIBUTING.md');
+expectFile('LICENSE');
+expectContains('.gitignore', '!.env.example', '.env.example gitignore exception');
 expectFile('docs/START_HERE.md');
 expectFile('docs/codex-handoff.md');
 expectFile('docs/documentation-policy.md');
@@ -203,6 +243,7 @@ expectFile('docs/decisions/0001-release-through-github-actions.md');
 expectFile('docs/decisions/0002-sensitive-config-boundary.md');
 expectFile('docs/decisions/0003-guide-update-policy.md');
 expectFile('docs/decisions/0004-proxy-security-boundary.md');
+expectFile('docs/decisions/0005-app-hook-architecture.md');
 expectFile('docs/templates/dev-log-template.md');
 expectFile('docs/templates/release-check-template.md');
 expectFile('docs/templates/decision-template.md');
@@ -225,7 +266,11 @@ expectContains('.github/workflows/release-windows.yml', 'npm run docs:check');
 expectContains('.github/workflows/release-windows.yml', 'npm run publish:win');
 expectContains('.github/workflows/release-windows.yml', 'GITHUB_TOKEN');
 expectContains('.github/workflows/ci.yml', 'node --check server/proxy-server.mjs');
+expectContains('.github/workflows/ci.yml', 'node --check server/runtime-env.mjs');
 expectContains('.github/workflows/release-windows.yml', 'node --check server/proxy-server.mjs');
+expectContains('.github/workflows/release-windows.yml', 'node --check server/runtime-env.mjs');
+expectContains('package.json', 'node --check server/runtime-env.mjs', 'runtime-env syntax check');
+expectFile('.github/pull_request_template.md');
 expectNotContains('.github/workflows/release-windows.yml', /^\s*workflow_dispatch\s*:/m, 'manual release workflow dispatch');
 expectContains('.github/workflows/release-windows.yml', 'Validate release tag');
 expectContains('.github/workflows/release-windows.yml', '^v\\d+\\.\\d+\\.\\d+$', 'vX.Y.Z tag validation');
@@ -275,6 +320,7 @@ if (releaseAnnouncement?.content && releaseAnnouncement.content.trim().length > 
 expectContains('src/renderer/src/guides.ts', `'${version}'`, `release guide ${version}`);
 expectContains('tests/guides.test.ts', version, `guide tests ${version}`);
 expectNotContains('README.md', /已包含\s+v0\.1\.0\s+到\s+v\d+\.\d+\.\d+/, 'hard-coded release range');
+scanForReplacementCharacters();
 scanForSensitiveValues();
 
 if (failures.length > 0) {

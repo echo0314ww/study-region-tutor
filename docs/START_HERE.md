@@ -29,7 +29,7 @@ powershell -ExecutionPolicy Bypass -File scripts/read-utf8.ps1 docs/START_HERE.m
 - OCR 确认页支持多路候选切换和可选预处理；诊断支持快速检查、实际请求文本接口的深度测试和安全边界检查；公告支持按分类分组。
 - 学习库支持待复习/错题筛选、复习反馈、结构化知识点归类，以及 Markdown、Anki CSV、Obsidian 批量导出。
 - 学习库支持 JSON 备份导出和导入，导入时可选择替换或合并策略。
-- 支持暗色模式（亮色、暗色、跟随系统）；已建立中英文 i18n 基础设施，当前语言设置主要控制回答/导出语言。
+- 支持暗色模式（亮色、暗色、跟随系统）；核心操作界面、提示和状态文案已接入中英文 i18n，历史版本向导内容仍按中文源内容维护。
 - 错题统计仪表盘展示学科雷达图、知识点/易错点柱形图和统计卡片。
 - 发布统一走 GitHub Actions，推送 `vX.Y.Z` tag 后校验、构建并发布 Windows 安装包。
 - 已有 `npm run docs:check` 检查版本、文档结构、版本公告、发布说明、向导和敏感信息风险；`npm run security:check` 检查安全边界。
@@ -70,6 +70,7 @@ npm run build
 npm run security:check
 node --check server/proxy-server.mjs
 node --check server/ngrok-dev.mjs
+node --check server/runtime-env.mjs
 node --check scripts/sync-release-notes.mjs
 ```
 

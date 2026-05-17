@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { StudyDashboardStats } from '../studyLibrary';
 import { studyDashboardStats, STUDY_SUBJECT_LABELS } from '../studyLibrary';
 import type { StudyItem } from '../uiTypes';
+import { useTranslation } from '../i18n';
 
 export interface DashboardPanelProps {
   studyItems: StudyItem[];
@@ -36,6 +37,7 @@ function HorizontalBar({ items, maxCount }: { items: Array<{ label: string; coun
 }
 
 function SubjectRadar({ stats }: { stats: StudyDashboardStats }): JSX.Element | null {
+  const { t } = useTranslation();
   const subjects = stats.subjectCounts;
 
   if (subjects.length < 3) {
@@ -63,8 +65,8 @@ function SubjectRadar({ stats }: { stats: StudyDashboardStats }): JSX.Element | 
 
   return (
     <div className="study-dashboard-card wide">
-      <span>学科分布</span>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ margin: '0 auto' }}>
+      <span>{t('dashboard.subjectDistribution')}</span>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ margin: '0 auto' }} role="img" aria-label={t('dashboard.subjectDistribution')}>
         {[0.33, 0.66, 1].map((scale) => (
           <polygon
             key={scale}
@@ -96,6 +98,7 @@ function SubjectRadar({ stats }: { stats: StudyDashboardStats }): JSX.Element | 
 }
 
 export function DashboardPanel({ studyItems }: DashboardPanelProps): JSX.Element {
+  const { t } = useTranslation();
   const stats = useMemo(() => studyDashboardStats(studyItems), [studyItems]);
   const maxKp = useMemo(() => Math.max(...stats.topKnowledgePoints.map((k) => k.count), 1), [stats.topKnowledgePoints]);
   const maxMt = useMemo(() => Math.max(...stats.topMistakeTraps.map((m) => m.count), 1), [stats.topMistakeTraps]);
@@ -105,8 +108,8 @@ export function DashboardPanel({ studyItems }: DashboardPanelProps): JSX.Element
       <div className="history-page">
         <div className="history-page-header">
           <div>
-            <strong>数据统计</strong>
-            <span>学习库中没有记录，添加学习记录后可查看统计数据。</span>
+            <strong>{t('dashboard.title')}</strong>
+            <span>{t('dashboard.emptyDesc')}</span>
           </div>
         </div>
       </div>
@@ -117,28 +120,28 @@ export function DashboardPanel({ studyItems }: DashboardPanelProps): JSX.Element
     <div className="history-page">
       <div className="history-page-header">
         <div>
-          <strong>数据统计</strong>
-          <span>基于学习库中 {stats.total} 条记录的分析。</span>
+          <strong>{t('dashboard.title')}</strong>
+          <span>{t('dashboard.statsDesc', { count: stats.total })}</span>
         </div>
       </div>
       <div className="study-dashboard">
-        <StatCard label="总题数" value={stats.total} />
-        <StatCard label="待复习" value={stats.due} />
-        <StatCard label="错题" value={stats.mistakes} />
-        <StatCard label="掌握率" value={`${stats.masteredRate}%`} />
-        <StatCard label="近7天复习" value={stats.reviewedLast7Days} />
-        <StatCard label="学科数" value={stats.subjectCounts.length} />
+        <StatCard label={t('dashboard.totalQuestions')} value={stats.total} />
+        <StatCard label={t('dashboard.dueReview')} value={stats.due} />
+        <StatCard label={t('dashboard.mistakes')} value={stats.mistakes} />
+        <StatCard label={t('dashboard.masteredRate')} value={`${stats.masteredRate}%`} />
+        <StatCard label={t('dashboard.reviewedLast7Days')} value={stats.reviewedLast7Days} />
+        <StatCard label={t('dashboard.subjectCount')} value={stats.subjectCounts.length} />
       </div>
       <SubjectRadar stats={stats} />
       {stats.topKnowledgePoints.length > 0 && (
         <div className="study-dashboard-card wide">
-          <span>高频知识点 Top 5</span>
+          <span>{t('dashboard.topKnowledgePointsTop5')}</span>
           <HorizontalBar items={stats.topKnowledgePoints} maxCount={maxKp} />
         </div>
       )}
       {stats.topMistakeTraps.length > 0 && (
         <div className="study-dashboard-card wide">
-          <span>高频易错点 Top 5</span>
+          <span>{t('dashboard.topMistakeTrapsTop5')}</span>
           <HorizontalBar items={stats.topMistakeTraps} maxCount={maxMt} />
         </div>
       )}

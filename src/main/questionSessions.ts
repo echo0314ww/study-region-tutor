@@ -22,6 +22,7 @@ interface CreateQuestionSessionInput {
 }
 
 const MAX_SESSIONS = 12;
+const MAX_TURNS = 200;
 const sessions = new Map<string, StoredQuestionSession>();
 
 function pruneSessions(): void {
@@ -73,7 +74,13 @@ export function getQuestionSession(sessionId: string): StoredQuestionSession {
 }
 
 export function appendQuestionSessionTurn(sessionId: string, turn: QuestionSessionTurn): void {
-  getQuestionSession(sessionId).turns.push(turn);
+  const session = getQuestionSession(sessionId);
+
+  if (session.turns.length >= MAX_TURNS) {
+    throw new Error(`单次对话轮数已达上限 (${MAX_TURNS})，请结束当前题目重新开始。`);
+  }
+
+  session.turns.push(turn);
 }
 
 export function updateQuestionSessionResponseId(sessionId: string, responseId: string | undefined): void {

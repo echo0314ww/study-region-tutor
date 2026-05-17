@@ -1,6 +1,7 @@
 import { Copy, Loader2, RefreshCw } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ApiRuntimeDefaults, ProxyHealthResult, TutorSettings } from '../../../shared/types';
+import { useTranslation } from '../i18n';
 import type { ProxyHealthStatus } from '../uiTypes';
 
 export interface ProxyAdminPanelProps {
@@ -13,22 +14,6 @@ export interface ProxyAdminPanelProps {
   onCopy: (text: string) => void;
 }
 
-function serviceUrlSummary(health: ProxyHealthResult | null): string {
-  if (!health?.serviceUrls) {
-    return '';
-  }
-
-  const rows = [
-    ['本机', health.serviceUrls.local || []],
-    ['局域网', health.serviceUrls.lan || []],
-    ['公网', health.serviceUrls.public || []]
-  ];
-
-  return rows
-    .map(([label, urls]) => `${label}: ${(urls as string[]).length > 0 ? (urls as string[]).join(', ') : '未提供'}`)
-    .join('\n');
-}
-
 export function ProxyAdminPanel({
   settings,
   apiDefaults,
@@ -38,26 +23,59 @@ export function ProxyAdminPanel({
   onValidateProxyConnection,
   onCopy
 }: ProxyAdminPanelProps): JSX.Element {
+  const { t } = useTranslation();
   const [latestHealth, setLatestHealth] = useState<ProxyHealthResult | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [detailError, setDetailError] = useState('');
   const hasProxyToken = Boolean(settings.proxyToken.trim()) || Boolean(apiDefaults?.hasProxyToken);
 
+  function serviceUrlSummary(health: ProxyHealthResult | null): string {
+    if (!health?.serviceUrls) {
+      return '';
+    }
+
+    const rows = [
+      [t('proxy.admin.local'), health.serviceUrls.local || []],
+      [t('proxy.admin.lan'), health.serviceUrls.lan || []],
+      [t('proxy.admin.public'), health.serviceUrls.public || []]
+    ];
+
+    return rows
+      .map(([label, urls]) => `${label}: ${(urls as string[]).length > 0 ? (urls as string[]).join(', ') : t('proxy.admin.notProvided')}`)
+      .join('\n');
+  }
+
   const summary = useMemo(() => {
     const health = latestHealth;
 
+    function serviceUrlSummaryInner(h: ProxyHealthResult | null): string {
+      if (!h?.serviceUrls) {
+        return '';
+      }
+
+      const rows = [
+        [t('proxy.admin.local'), h.serviceUrls.local || []],
+        [t('proxy.admin.lan'), h.serviceUrls.lan || []],
+        [t('proxy.admin.public'), h.serviceUrls.public || []]
+      ];
+
+      return rows
+        .map(([label, urls]) => `${label}: ${(urls as string[]).length > 0 ? (urls as string[]).join(', ') : t('proxy.admin.notProvided')}`)
+        .join('\n');
+    }
+
     return [
-      `代理地址: ${currentProxyUrl || '未配置'}`,
-      `连接状态: ${health ? (health.ok ? '可用' : '不可用') : proxyHealthStatus}`,
-      `服务商数量: ${health?.providerCount ?? '未知'}`,
-      `Token 数量: ${health?.tokenCount ?? '未知'}`,
-      `限流: ${health?.rateLimitEnabled ? '已启用' : '未启用或未知'}`,
-      `公告: ${health?.announcementEnabled === undefined ? '未知' : health.announcementEnabled ? `已启用，${health.announcementCount ?? 0} 条` : '未启用'}`,
-      serviceUrlSummary(health)
+      `${t('proxy.admin.proxyAddress')}: ${currentProxyUrl || t('proxy.admin.notConfigured')}`,
+      `${t('proxy.admin.connectionStatus')}: ${health ? (health.ok ? t('proxy.admin.available') : t('proxy.admin.unavailable')) : proxyHealthStatus}`,
+      `${t('proxy.admin.providerCount')}: ${health?.providerCount ?? t('proxy.admin.unknown')}`,
+      `Token ${t('proxy.admin.tokenCount')}: ${health?.tokenCount ?? t('proxy.admin.unknown')}`,
+      `${t('proxy.admin.rateLimit')}: ${health?.rateLimitEnabled ? t('proxy.admin.enabled') : t('proxy.admin.notEnabledOrUnknown')}`,
+      `${t('proxy.admin.announcements')}: ${health?.announcementEnabled === undefined ? t('proxy.admin.unknown') : health.announcementEnabled ? t('proxy.admin.enabledCount', { count: health.announcementCount ?? 0 }) : t('proxy.admin.notEnabled')}`,
+      serviceUrlSummaryInner(health)
     ]
       .filter(Boolean)
       .join('\n');
-  }, [currentProxyUrl, latestHealth, proxyHealthStatus]);
+  }, [currentProxyUrl, latestHealth, proxyHealthStatus, t]);
 
   const refreshDetails = async (): Promise<void> => {
     setIsLoadingDetails(true);
@@ -80,47 +98,47 @@ export function ProxyAdminPanel({
   return (
     <div className="proxy-admin-page">
       <div className="proxy-admin-summary">
-        <strong>代理管理面板</strong>
-        <span>用于确认代理服务地址、Token 状态、服务商数量、公告状态和服务端暴露的访问地址。</span>
+        <strong>{t('proxy.admin.title')}</strong>
+        <span>{t('proxy.admin.desc')}</span>
       </div>
       <div className={`proxy-validation-result ${proxyHealthStatus === 'error' || detailError ? 'danger' : ''}`}>
-        {detailError || proxyHealthMessage || (currentProxyUrl ? '尚未刷新代理详情。' : '未配置代理地址。')}
+        {detailError || proxyHealthMessage || (currentProxyUrl ? t('proxy.admin.notRefreshed') : t('proxy.admin.notConfigured'))}
       </div>
       <dl className="proxy-admin-grid">
         <div>
-          <dt>当前地址</dt>
-          <dd>{currentProxyUrl || '未配置'}</dd>
+          <dt>{t('proxy.admin.currentAddress')}</dt>
+          <dd>{currentProxyUrl || t('proxy.admin.notConfigured')}</dd>
         </div>
         <div>
-          <dt>访问 Token</dt>
-          <dd>{hasProxyToken ? '已保存或本次已填写' : '未填写'}</dd>
+          <dt>{t('proxy.admin.accessToken')}</dt>
+          <dd>{hasProxyToken ? t('proxy.admin.tokenSaved') : t('proxy.admin.tokenNotSet')}</dd>
         </div>
         <div>
-          <dt>服务商数量</dt>
-          <dd>{latestHealth?.providerCount ?? '未知'}</dd>
+          <dt>{t('proxy.admin.providerCount')}</dt>
+          <dd>{latestHealth?.providerCount ?? t('proxy.admin.unknown')}</dd>
         </div>
         <div>
-          <dt>代理 Token 数量</dt>
-          <dd>{latestHealth?.tokenCount ?? '未知'}</dd>
+          <dt>{t('proxy.admin.tokenCount')}</dt>
+          <dd>{latestHealth?.tokenCount ?? t('proxy.admin.unknown')}</dd>
         </div>
         <div>
-          <dt>限流</dt>
-          <dd>{latestHealth?.rateLimitEnabled ? '已启用' : '未启用或未知'}</dd>
+          <dt>{t('proxy.admin.rateLimit')}</dt>
+          <dd>{latestHealth?.rateLimitEnabled ? t('proxy.admin.enabled') : t('proxy.admin.notEnabledOrUnknown')}</dd>
         </div>
         <div>
-          <dt>公告</dt>
+          <dt>{t('proxy.admin.announcements')}</dt>
           <dd>
             {latestHealth?.announcementEnabled === undefined
-              ? '未知'
+              ? t('proxy.admin.unknown')
               : latestHealth.announcementEnabled
-                ? `已启用，${latestHealth.announcementCount ?? 0} 条`
-                : '未启用'}
+                ? t('proxy.admin.enabledCount', { count: latestHealth.announcementCount ?? 0 })
+                : t('proxy.admin.notEnabled')}
           </dd>
         </div>
       </dl>
       {latestHealth?.serviceUrls && (
         <div className="proxy-service-urls">
-          <strong>服务端地址</strong>
+          <strong>{t('proxy.admin.serverUrls')}</strong>
           <pre>{serviceUrlSummary(latestHealth)}</pre>
         </div>
       )}
@@ -139,11 +157,11 @@ export function ProxyAdminPanel({
           ) : (
             <RefreshCw size={16} />
           )}
-          刷新代理状态
+          {t('proxy.admin.refreshStatus')}
         </button>
         <button className="secondary-button" type="button" onClick={() => onCopy(summary)}>
           <Copy size={16} />
-          复制摘要
+          {t('proxy.admin.copySummary')}
         </button>
       </div>
     </div>

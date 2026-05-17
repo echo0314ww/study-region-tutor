@@ -7,6 +7,32 @@ interface ReleaseGuideContent {
 }
 
 const releaseGuidesByVersion: Record<string, ReleaseGuideContent> = {
+  '1.4.0': {
+    title: 'v1.4.0 新增功能',
+    subtitle: '界面国际化、架构拆分、安全加固和发布规范更新。',
+    steps: [
+      {
+        title: '界面文案更完整',
+        body: '核心操作界面、提示和导出状态补齐中英文文案，切换语言时复制、导出、设置和更新状态都会同步变化。',
+        action: '如果需要英文界面，可在设置页切换语言后重新检查常用流程。'
+      },
+      {
+        title: '主界面更易维护',
+        body: 'App 主流程拆分为 API 设置、讲解会话、学习库、截图流程、向导、诊断和确认弹窗等 Hook，后续改动边界更清晰。',
+        action: '遇到问题时可按 Hook 职责定位状态来源。'
+      },
+      {
+        title: '安全和稳定性更稳',
+        body: 'KaTeX 渲染、SSRF 地址识别、代理超时、OCR Worker 清理、窗口空引用和会话轮次上限都做了加固。',
+        action: '长时间请求、异常截图或复杂公式场景下会更稳。'
+      },
+      {
+        title: '发布检查更严格',
+        body: '文档检查覆盖环境模板、许可证、PR 模板、ADR 和 runtime-env 语法检查；validate 与发布前完整验证的边界也已写清。',
+        action: '发布前按清单确认本版本向导、历史向导和整体功能向导。'
+      }
+    ]
+  },
   '1.3.0': {
     title: 'v1.3.0 新增功能',
     subtitle: '暗色模式、数据统计、备份恢复和学习库体验更新。',
@@ -29,7 +55,7 @@ const releaseGuidesByVersion: Record<string, ReleaseGuideContent> = {
       {
         title: '学习库和评测更稳',
         body: '学习库概览新增掌握率、近 7 天复习和高频知识点；导出会明确使用当前筛选结果，模型评测最多一次 20 组并可停止。',
-        action: '如果切换语言，目前主要影响模型回答和导出语言；界面英文文案会后续逐步接入。'
+        action: '如果切换语言，核心操作界面、提示和导出状态会随语言切换；历史版本向导内容仍按中文源内容维护。'
       }
     ]
   },

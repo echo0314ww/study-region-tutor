@@ -8,6 +8,12 @@ export default defineConfig({
       threads: {
         singleThread: true
       }
+    },
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: ['src/**/*.d.ts', 'src/**/types.ts', 'src/renderer/src/i18n/*.ts']
     }
   }
 });

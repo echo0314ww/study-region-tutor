@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import type { Announcement } from '../../../shared/types';
 import { AnswerRenderer } from '../AnswerRenderer';
 import { useFocusTrap } from '../useFocusTrap';
+import { useTranslation } from '../i18n';
 import { announcementCategory, announcementMetaText, isReleaseAnnouncement } from '../uiUtils';
 
 export interface AnnouncementPanelProps {
@@ -28,6 +29,7 @@ export function AnnouncementPanel({
   onPointerEnter,
   onPointerLeave
 }: AnnouncementPanelProps): JSX.Element {
+  const { t } = useTranslation();
   const trapRef = useFocusTrap<HTMLElement>();
 
   const groupedAnnouncements = useMemo(
@@ -61,13 +63,13 @@ export function AnnouncementPanel({
       <div className="panel-header">
         <div className={`status announcement-status ${announcementPanelLevel}`}>
           <Bell size={16} />
-          <span>公告(如有红点提醒，不妨看看公告内容有什么变化)</span>
+          <span>{t('announcements.title')}</span>
         </div>
         <button
           className="icon-button ghost"
           type="button"
           onClick={onClose}
-          title="关闭"
+          title={t('app.close')}
         >
           <X size={18} />
         </button>
@@ -125,7 +127,7 @@ export function AnnouncementPanel({
         </div>
       ) : (
         <div className="empty-state">
-          {announcementError || (announcementSourceUrl ? '暂无公告' : '未配置远程服务地址')}
+          {announcementError || (announcementSourceUrl ? t('announcements.empty') : t('announcements.noSource'))}
         </div>
       )}
     </aside>

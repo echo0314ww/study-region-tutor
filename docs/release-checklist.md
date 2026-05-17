@@ -38,6 +38,7 @@
 - [ ] `npm run security:check`
 - [ ] `node --check server/proxy-server.mjs`
 - [ ] `node --check server/ngrok-dev.mjs`
+- [ ] `node --check server/runtime-env.mjs`
 - [ ] `node --check scripts/sync-release-notes.mjs`
 - [ ] 代理配置热更新验证：编辑、删除、恢复、重命名 `.env.local` 后，`/health` 能在不重启 `npm run proxy:dev` 的情况下反映当前状态；删除 `AI_PROVIDERS` 后应返回 503，恢复后应回到 200。
 - [ ] 代理端口热更新验证：修改 `TUTOR_PROXY_PORT` 后，`npm run proxy:dev` 和 `npm run ngrok:dev` 最终指向同一端口，旧端口不再被误判为可用。

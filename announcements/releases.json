@@ -1,5 +1,6 @@
 {
   "allAnnouncement": [
+    "release-v1.4.0",
     "release-v1.3.0",
     "release-v1.2.0",
     "release-v1.1.3",
@@ -11,6 +12,13 @@
     "release-v1.0.1"
   ],
   "announcements": [
+    {
+      "id": "release-v1.4.0",
+      "title": "v1.4.0 更新说明",
+      "content": "- 核心界面文案补齐中英文切换，复制、导出、设置和更新状态随语言变化。\n- 主界面逻辑拆分为多个 Hook，确认弹窗独立并加入焦点陷阱，后续维护更清晰。\n- KaTeX、SSRF、代理请求、OCR Worker、截图和会话上限等安全与稳定性细节做了加固。\n- 文档、PR 模板、许可证、环境模板和发布检查进一步规范，新增 runtime-env 语法检查。",
+      "level": "建议查看",
+      "publishedAt": "2026-05-17 23:20"
+    },
     {
       "id": "release-v1.3.0",
       "title": "v1.3.0 更新说明",

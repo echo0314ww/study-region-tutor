@@ -3,7 +3,7 @@ import type { UpdateStatusEvent } from '../../shared/types';
 
 const INITIAL_UPDATE_STATUS: UpdateStatusEvent = {
   status: 'idle',
-  message: '尚未检查更新。'
+  message: ''
 };
 
 export function useUpdateStatus(): UpdateStatusEvent {

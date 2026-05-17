@@ -1,7 +1,8 @@
-import { ArrowDownToLine } from 'lucide-react';
+import { ArrowDownToLine, Bot, Clipboard, User } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UiConversationTurn } from '../uiTypes';
 import { AnswerRenderer } from '../AnswerRenderer';
+import { useTranslation } from '../i18n';
 
 export interface ConversationViewProps {
   conversationTurns: UiConversationTurn[];
@@ -11,11 +12,22 @@ export interface ConversationViewProps {
 
 const SCROLL_BOTTOM_THRESHOLD = 24;
 
+function formatTimestamp(iso?: string): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
 export function ConversationView({
   conversationTurns,
   progressText,
   isLoading
 }: ConversationViewProps): JSX.Element {
+  const { t } = useTranslation();
   const listRef = useRef<HTMLDivElement | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
@@ -77,24 +89,71 @@ export function ConversationView({
     updateScrollButton();
   }, [conversationTurns, progressText, isLoading, updateScrollButton]);
 
+  const handleCopy = useCallback((text: string) => {
+    void navigator.clipboard.writeText(text);
+  }, []);
+
   return (
     <div className="conversation-shell">
       <div className="conversation-list" ref={listRef}>
         {conversationTurns.map((turn) => (
-          <section className={`conversation-turn ${turn.role}`} key={turn.id}>
-            <div className="conversation-role">{turn.role === 'user' ? '我的追问' : '讲解'}</div>
-            {turn.role === 'assistant' ? (
-              <AnswerRenderer text={turn.content} />
-            ) : (
-              <p className="user-message">{turn.content}</p>
+          <div className={`chat-bubble-row ${turn.role}`} key={turn.id}>
+            {turn.role === 'assistant' && (
+              <div className="chat-avatar" aria-hidden="true">
+                <Bot size={15} />
+              </div>
             )}
-          </section>
+            <div className="chat-bubble">
+              {turn.role === 'assistant' ? (
+                <AnswerRenderer text={turn.content} />
+              ) : (
+                <p className="user-message">{turn.content}</p>
+              )}
+              <div className="chat-bubble-meta">
+                <span className="chat-timestamp">{formatTimestamp(turn.timestamp)}</span>
+                {turn.role === 'assistant' && (
+                  <button
+                    className="chat-copy-btn"
+                    type="button"
+                    onClick={() => handleCopy(turn.content)}
+                    title={t('conversation.copy')}
+                    aria-label={t('conversation.copy')}
+                  >
+                    <Clipboard size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+            {turn.role === 'user' && (
+              <div className="chat-avatar" aria-hidden="true">
+                <User size={15} />
+              </div>
+            )}
+          </div>
         ))}
         {isLoading && progressText && (
-          <section className="conversation-turn assistant" aria-live="polite">
-            <div className="conversation-role">处理过程</div>
-            <AnswerRenderer text={progressText} />
-          </section>
+          <div className="chat-bubble-row assistant" aria-live="polite">
+            <div className="chat-avatar" aria-hidden="true">
+              <Bot size={15} />
+            </div>
+            <div className="chat-bubble">
+              <AnswerRenderer text={progressText} />
+            </div>
+          </div>
+        )}
+        {isLoading && !progressText && (
+          <div className="chat-bubble-row assistant" aria-live="polite">
+            <div className="chat-avatar" aria-hidden="true">
+              <Bot size={15} />
+            </div>
+            <div className="chat-bubble">
+              <div className="typing-indicator">
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+          </div>
         )}
       </div>
       {showScrollToBottom && (
@@ -102,8 +161,8 @@ export function ConversationView({
           className="scroll-bottom-button"
           type="button"
           onClick={scrollToBottom}
-          title="跳到底部"
-          aria-label="跳到底部"
+          title={t('conversation.scrollToBottom')}
+          aria-label={t('conversation.scrollToBottom')}
         >
           <ArrowDownToLine size={18} />
         </button>

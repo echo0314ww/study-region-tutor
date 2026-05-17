@@ -14,12 +14,13 @@ import {
   parseExplainRecognizedTextRequest,
   parseExplainRequest,
   parseFollowUpRequest,
-  parseOptionalSourceUrl,
+  parseOptionalProxyServiceUrl,
   parseOptionalTutorSettings,
   parseProxyToken,
   parseRecognizeRegionRequest,
   parseRunDiagnosticsRequest,
   parseRunPromptEvalRequest,
+  parseStudyLibraryBackup,
   parseTutorSettings
 } from '../shared/validators';
 import type {
@@ -547,6 +548,7 @@ async function createOcrPreviewFromDataUrl(
     processLog: latestProcessLog,
     sourceMode,
     reason,
+    previewImageDataUrl: dataUrl,
     candidates: ocrResult.candidates,
     selectedCandidateId: ocrResult.candidates[0]?.id,
     ...(fallbackReason ? { fallbackReason } : {})
@@ -648,19 +650,19 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.getLatestAnnouncement, (_event, rawSourceUrl?: unknown): Promise<AnnouncementEvent> => {
-    const sourceUrl = parseOptionalSourceUrl(rawSourceUrl);
+    const sourceUrl = parseOptionalProxyServiceUrl(rawSourceUrl);
 
     return fetchLatestAnnouncement(sourceUrl);
   });
 
   ipcMain.handle(IPC_CHANNELS.connectAnnouncements, (event, rawSourceUrl?: unknown): void => {
-    const sourceUrl = parseOptionalSourceUrl(rawSourceUrl);
+    const sourceUrl = parseOptionalProxyServiceUrl(rawSourceUrl);
 
     connectAnnouncementStream(sourceUrl, event.sender);
   });
 
   ipcMain.handle(IPC_CHANNELS.checkProxyHealth, (_event, rawSourceUrl?: unknown) => {
-    const sourceUrl = parseOptionalSourceUrl(rawSourceUrl);
+    const sourceUrl = parseOptionalProxyServiceUrl(rawSourceUrl);
 
     return checkProxyHealth(sourceUrl);
   });
@@ -692,13 +694,13 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC_CHANNELS.exportStudyBackup,
     async (_event, rawBackup: unknown): Promise<{ saved: boolean; path?: string }> => {
-      const backup = rawBackup as StudyLibraryBackup;
+      const backup = parseStudyLibraryBackup(rawBackup);
 
-      if (!backup || typeof backup !== 'object' || backup.version !== 1 || !Array.isArray(backup.items)) {
-        throw new Error('无效的备份数据格式。');
+      if (!mainWindow) {
+        throw new Error('主窗口不可用，请稍后重试。');
       }
 
-      const result = await dialog.showSaveDialog(mainWindow!, {
+      const result = await dialog.showSaveDialog(mainWindow, {
         title: '导出学习数据备份',
         defaultPath: `study-backup-${new Date().toISOString().slice(0, 10)}.json`,
         filters: [{ name: 'JSON', extensions: ['json'] }]
@@ -718,7 +720,11 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC_CHANNELS.importStudyBackup,
     async (): Promise<{ imported: boolean; backup?: StudyLibraryBackup }> => {
-      const result = await dialog.showOpenDialog(mainWindow!, {
+      if (!mainWindow) {
+        throw new Error('主窗口不可用，请稍后重试。');
+      }
+
+      const result = await dialog.showOpenDialog(mainWindow, {
         title: '导入学习数据备份',
         filters: [{ name: 'JSON', extensions: ['json'] }],
         properties: ['openFile']
@@ -730,13 +736,9 @@ function registerIpc(): void {
 
       const { readFile } = await import('node:fs/promises');
       const content = await readFile(result.filePaths[0], 'utf-8');
-      const parsed = JSON.parse(content);
+      const parsed = parseStudyLibraryBackup(JSON.parse(content));
 
-      if (!parsed || typeof parsed !== 'object' || parsed.version !== 1 || !Array.isArray(parsed.items)) {
-        throw new Error('文件格式无效，不是有效的学习数据备份。');
-      }
-
-      return { imported: true, backup: parsed as StudyLibraryBackup };
+      return { imported: true, backup: parsed };
     }
   );
 
@@ -980,15 +982,22 @@ app.whenReady().then(() => {
     }, 3000);
   }
 
+  let displayMetricsTimer: ReturnType<typeof setTimeout> | undefined;
   screen.on('display-added', () => mainWindow?.setBounds(currentVirtualBounds()));
   screen.on('display-removed', () => mainWindow?.setBounds(currentVirtualBounds()));
-  screen.on('display-metrics-changed', () => mainWindow?.setBounds(currentVirtualBounds()));
+  screen.on('display-metrics-changed', () => {
+    clearTimeout(displayMetricsTimer);
+    displayMetricsTimer = setTimeout(() => mainWindow?.setBounds(currentVirtualBounds()), 200);
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
+}).catch((error) => {
+  console.error('[app] Failed to initialize:', error);
+  app.quit();
 });
 
 app.on('window-all-closed', () => {
@@ -1006,5 +1015,14 @@ app.on('before-quit', (event) => {
 
   event.preventDefault();
   isQuittingAfterOcrDispose = true;
-  void disposeOcrWorkers().finally(() => app.quit());
+
+  const forceQuitTimer = setTimeout(() => {
+    console.warn('[before-quit] OCR dispose timed out after 5s, forcing quit.');
+    app.quit();
+  }, 5000);
+
+  void disposeOcrWorkers().finally(() => {
+    clearTimeout(forceQuitTimer);
+    app.quit();
+  });
 });

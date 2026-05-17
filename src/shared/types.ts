@@ -134,6 +134,7 @@ export interface OcrPreviewResult {
   processLog: string;
   sourceMode: InputMode;
   reason: OcrPreviewReason;
+  previewImageDataUrl?: string;
   fallbackReason?: string;
   candidates?: OcrCandidate[];
   selectedCandidateId?: string;

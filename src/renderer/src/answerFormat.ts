@@ -579,7 +579,6 @@ function tokenizeFlatFormula(text: string): string {
 
       // √ followed by a single digit/letter or a multi-char token
       let sqrtContent = '';
-      const sqrtStart = i;
 
       while (i < text.length && /[A-Za-z0-9]/.test(text[i])) {
         sqrtContent += text[i];
@@ -590,11 +589,6 @@ function tokenizeFlatFormula(text: string): string {
         result += '\\sqrt{}';
       } else {
         result += `\\sqrt{${sqrtContent}}`;
-      }
-
-      // If we only got 0 or 1 extra chars, check if there's nothing useful
-      if (sqrtContent.length === 0 && i === sqrtStart) {
-        result += '\\sqrt{}';
       }
 
       continue;

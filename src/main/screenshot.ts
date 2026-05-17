@@ -151,6 +151,10 @@ export async function captureRegionAsDataUrl(region: RegionBounds): Promise<stri
       });
     }
 
+    if (segmentBuffers.length === 0) {
+      throw new Error('No display segments were captured. The selected region may not overlap any active display.');
+    }
+
     const buffer = segmentBuffers.length === 1 ? segmentBuffers[0].buffer : composeSegments(plan, segmentBuffers);
     await maybeWriteDebugPng(buffer, {
       region,

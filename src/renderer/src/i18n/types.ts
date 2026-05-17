@@ -16,11 +16,19 @@ export interface Messages {
   'app.reset': string;
 
   // Toolbar
+  'toolbar.drag': string;
   'toolbar.capture': string;
+  'toolbar.cancelCapture': string;
+  'toolbar.recapture': string;
+  'toolbar.confirmCapture': string;
+  'toolbar.recognizing': string;
+  'toolbar.stop': string;
+  'toolbar.stopping': string;
   'toolbar.cancel': string;
   'toolbar.result': string;
   'toolbar.settings': string;
   'toolbar.announcements': string;
+  'toolbar.quit': string;
   'toolbar.finishQuestion': string;
 
   // Settings
@@ -36,6 +44,7 @@ export interface Messages {
   'settings.productGuide': string;
   'settings.releaseGuide': string;
   'settings.historyGuide': string;
+  'settings.dashboard': string;
   'settings.apiConnection': string;
   'settings.apiConnection.direct': string;
   'settings.apiConnection.proxy': string;
@@ -80,11 +89,14 @@ export interface Messages {
   'settings.theme.light': string;
   'settings.theme.dark': string;
   'settings.reasoningOnly': string;
+  'settings.language.zh': string;
+  'settings.language.en': string;
 
   // Update
   'update.title': string;
   'update.currentVersion': string;
   'update.latestVersion': string;
+  'update.notChecked': string;
   'update.check': string;
   'update.download': string;
   'update.downloading': string;
@@ -96,12 +108,14 @@ export interface Messages {
   'diagnostics.run': string;
   'diagnostics.running': string;
   'diagnostics.deep': string;
+  'diagnostics.copyReport': string;
 
   // Shortcuts
   'shortcuts.title': string;
   'shortcuts.desc': string;
   'shortcuts.restore': string;
   'shortcuts.placeholder': string;
+  'shortcuts.conflict': string;
   'shortcut.startCapture': string;
   'shortcut.cancelCapture': string;
   'shortcut.confirmCapture': string;
@@ -122,12 +136,26 @@ export interface Messages {
   'proxy.validating': string;
   'proxy.restoreDefault': string;
   'proxy.defaultRestored': string;
+  'proxy.health.noUrl': string;
+  'proxy.health.checking': string;
+  'proxy.health.success': string;
+  'proxy.health.errorDefault': string;
+  'proxy.health.errorCustom': string;
+  'proxy.health.idleDefault': string;
+  'proxy.health.idleCustom': string;
+  'proxy.validation.checking': string;
+  'proxy.validation.successDefault': string;
+  'proxy.validation.successCustom': string;
+  'proxy.validation.errorDefault': string;
+  'proxy.validation.errorCustom': string;
 
   // Direct setup
   'directSetup.title': string;
   'directSetup.desc': string;
   'directSetup.createFile': string;
   'directSetup.minFields': string;
+  'directSetup.baseUrlExample': string;
+  'directSetup.apiKeyExample': string;
   'directSetup.afterSave': string;
 
   // Announcements
@@ -138,22 +166,78 @@ export interface Messages {
   // Result panel
   'result.empty': string;
   'result.error': string;
+  'result.stopped': string;
+  'result.ocrPending': string;
+  'result.done': string;
+  'result.pending': string;
+  'result.analyzing': string;
+  'result.waiting': string;
+  'result.copyAnswer': string;
+  'result.exportAnswer': string;
+  'result.nextQuestion': string;
+  'result.endQuestion': string;
 
   // Follow-up
   'followUp.placeholder': string;
   'followUp.send': string;
   'followUp.stop': string;
+  'followUp.sendFollowUp': string;
+  'followUp.nextCapture': string;
 
   // OCR Preview
   'ocrPreview.title': string;
   'ocrPreview.confirm': string;
   'ocrPreview.rerun': string;
+  'ocrPreview.cancel': string;
+  'ocrPreview.headerTitle': string;
+  'ocrPreview.introFallback': string;
+  'ocrPreview.introNormal': string;
+  'ocrPreview.fallbackReason': string;
+  'ocrPreview.imagePreview': string;
+  'ocrPreview.candidateLabel': string;
+  'ocrPreview.candidateSwitch': string;
+  'ocrPreview.recognizedText': string;
+  'ocrPreview.emptyWarning': string;
+  'ocrPreview.charCount': string;
+  'ocrPreview.sendExplain': string;
+  'ocrPreview.reselect': string;
+
+  // Capture
+  'capture.dragHint': string;
+  'capture.confirmHint': string;
+  'capture.regionLabel': string;
+  'capture.pendingLabel': string;
+
+  // Conversation
+  'conversation.myFollowUp': string;
+  'conversation.explanation': string;
+  'conversation.progress': string;
+  'conversation.scrollToBottom': string;
+  'conversation.copy': string;
+
+  // Settings tabs
+  'settings.tab.basic': string;
+  'settings.tab.library': string;
+  'settings.tab.dashboard': string;
+  'settings.tab.tools': string;
+  'settings.tab.about': string;
+
+  // Toast
+  'toast.copied': string;
+  'toast.exported': string;
 
   // Study library
   'studyLibrary.title': string;
+  'studyLibrary.subtitle': string;
   'studyLibrary.empty': string;
+  'studyLibrary.noMatch': string;
   'studyLibrary.searchPlaceholder': string;
   'studyLibrary.showFavorites': string;
+  'studyLibrary.showDue': string;
+  'studyLibrary.showMistakes': string;
+  'studyLibrary.allSubjects': string;
+  'studyLibrary.allStatuses': string;
+  'studyLibrary.clearFilters': string;
   'studyLibrary.clearAll': string;
   'studyLibrary.clearConfirmTitle': string;
   'studyLibrary.clearConfirmBody': string;
@@ -162,21 +246,63 @@ export interface Messages {
   'studyLibrary.deleteConfirmBody': string;
   'studyLibrary.deleteConfirmAction': string;
   'studyLibrary.count': string;
+  'studyLibrary.filteredCount': string;
   'studyLibrary.exportMarkdown': string;
   'studyLibrary.exportAnki': string;
   'studyLibrary.exportObsidian': string;
+  'studyLibrary.exportBackup': string;
+  'studyLibrary.importBackup': string;
+  'studyLibrary.mergePreferImported': string;
+  'studyLibrary.mergePreferLocal': string;
+  'studyLibrary.mergeReplace': string;
+  'studyLibrary.exportWillExport': string;
+  'studyLibrary.nextReview': string;
+  'studyLibrary.due': string;
+  'studyLibrary.notScheduled': string;
+
+  // Dashboard
+  'dashboard.title': string;
+  'dashboard.emptyDesc': string;
+  'dashboard.statsDesc': string;
+  'dashboard.totalQuestions': string;
+  'dashboard.dueReview': string;
+  'dashboard.mistakes': string;
+  'dashboard.masteredRate': string;
+  'dashboard.reviewedLast7Days': string;
+  'dashboard.subjectCount': string;
+  'dashboard.subjectDistribution': string;
+  'dashboard.topKnowledgePoints': string;
+  'dashboard.topMistakeTraps': string;
+  'dashboard.topKnowledgePointsTop5': string;
+  'dashboard.topMistakeTrapsTop5': string;
+  'dashboard.noData': string;
+  'dashboard.awaitingExtraction': string;
+
+  // Study stats
+  'stats.total': string;
+  'stats.due': string;
+  'stats.new': string;
+  'stats.reviewing': string;
+  'stats.mastered': string;
+  'stats.mistakes': string;
 
   // Study item fields
+  'studyItem.title': string;
   'studyItem.subject': string;
   'studyItem.difficulty': string;
   'studyItem.status': string;
   'studyItem.tags': string;
+  'studyItem.tagsPlaceholder': string;
   'studyItem.mistakeReason': string;
+  'studyItem.mistakeReasonPlaceholder': string;
   'studyItem.review': string;
   'studyItem.reviewEasy': string;
   'studyItem.reviewGood': string;
   'studyItem.reviewHard': string;
   'studyItem.reviewWrong': string;
+  'studyItem.favorite': string;
+  'studyItem.unfavorite': string;
+  'studyItem.reviewCount': string;
 
   // Subjects
   'subject.general': string;
@@ -199,11 +325,194 @@ export interface Messages {
   'guide.productTitle': string;
   'guide.releaseTitle': string;
   'guide.historyTitle': string;
+  'guide.viewStep': string;
+  'guide.noHistory': string;
+  'guide.noRelease': string;
+  'guide.noHistoryDesc': string;
+  'guide.noReleaseDesc': string;
+  'guide.dismissHistory': string;
+  'guide.skip': string;
+  'guide.prev': string;
+  'guide.next': string;
+  'guide.done': string;
 
   // Confirm dialog
   'confirm.quit.title': string;
   'confirm.quit.body': string;
   'confirm.quit.action': string;
+
+  // Setup wizard
+  'wizard.title': string;
+  'wizard.complete': string;
+  'wizard.dismiss': string;
+  'wizard.skip': string;
+  'wizard.firstSetup': string;
+  'wizard.currentVersion': string;
+  'wizard.stepDesc': string;
+  'wizard.step.connection': string;
+  'wizard.step.proxySetup': string;
+  'wizard.step.localSetup': string;
+  'wizard.step.providerModel': string;
+  'wizard.selectConnection': string;
+  'wizard.prev': string;
+  'wizard.next': string;
+  'wizard.directDesc': string;
+  'wizard.proxyDesc': string;
+  'wizard.checkLocalConfig': string;
+  'wizard.localConfigNote': string;
+  'wizard.localConfigOk': string;
+  'wizard.localConfigMissing': string;
+  'wizard.proxySetupTitle': string;
+  'wizard.validateProxy': string;
+  'wizard.proxyChecking': string;
+  'wizard.proxyOk': string;
+  'wizard.proxyIdle': string;
+  'wizard.proxyTokenHas': string;
+  'wizard.proxyTokenNeeded': string;
+  'wizard.selectProviderModel': string;
+  'wizard.noProvider': string;
+  'wizard.providerDefault': string;
+  'wizard.confirmShortcuts': string;
+  'wizard.shortcutDisabled': string;
+  'wizard.shortcutNote': string;
+
+  // Eval
+  'eval.title': string;
+  'eval.desc': string;
+  'eval.stop': string;
+  'eval.start': string;
+  'eval.inputLabel': string;
+  'eval.inputPlaceholder': string;
+  'eval.modelListLabel': string;
+  'eval.modelListPlaceholder': string;
+  'eval.currentProvider': string;
+  'eval.candidateHint': string;
+  'eval.variantCount': string;
+  'eval.preparing': string;
+  'eval.stopped': string;
+  'eval.completed': string;
+  'eval.stopping': string;
+  'eval.noRecords': string;
+  'eval.noModel': string;
+  'eval.chars': string;
+  'eval.failed': string;
+  'eval.viewOutput': string;
+  'eval.viewError': string;
+  'eval.copyResult': string;
+  'eval.ratingTitle': string;
+  'eval.validationInput': string;
+  'eval.validationModel': string;
+  'eval.validationTemplate': string;
+  'eval.validationMax': string;
+  'eval.formatModel': string;
+  'eval.formatTemplate': string;
+  'eval.formatResult': string;
+  'eval.formatLatency': string;
+  'eval.formatError': string;
+  'eval.formatSuccess': string;
+  'eval.formatFailed': string;
+  'eval.templateStandard': string;
+  'eval.templateConcise': string;
+  'eval.templateSocratic': string;
+  'eval.templateExamSafe': string;
+  'eval.templateCustom': string;
+
+  // Export
+  'export.copied': string;
+  'export.clipboardUnavailable': string;
+  'export.conversationExported': string;
+  'export.conversationExportedTo': string;
+
+  // Proxy admin panel
+  'proxy.admin.title': string;
+  'proxy.admin.desc': string;
+  'proxy.admin.notRefreshed': string;
+  'proxy.admin.notConfigured': string;
+  'proxy.admin.currentAddress': string;
+  'proxy.admin.accessToken': string;
+  'proxy.admin.tokenSaved': string;
+  'proxy.admin.tokenNotSet': string;
+  'proxy.admin.providerCount': string;
+  'proxy.admin.tokenCount': string;
+  'proxy.admin.rateLimit': string;
+  'proxy.admin.announcements': string;
+  'proxy.admin.enabled': string;
+  'proxy.admin.notEnabledOrUnknown': string;
+  'proxy.admin.notEnabled': string;
+  'proxy.admin.unknown': string;
+  'proxy.admin.enabledCount': string;
+  'proxy.admin.serverUrls': string;
+  'proxy.admin.refreshStatus': string;
+  'proxy.admin.copySummary': string;
+  'proxy.admin.proxyAddress': string;
+  'proxy.admin.connectionStatus': string;
+  'proxy.admin.available': string;
+  'proxy.admin.unavailable': string;
+  'proxy.admin.local': string;
+  'proxy.admin.lan': string;
+  'proxy.admin.public': string;
+  'proxy.admin.notProvided': string;
+
+  // Prompt template panel
+  'promptTemplate.desc': string;
+  'promptTemplate.standard': string;
+  'promptTemplate.standardDesc': string;
+  'promptTemplate.concise': string;
+  'promptTemplate.conciseDesc': string;
+  'promptTemplate.socratic': string;
+  'promptTemplate.socraticDesc': string;
+  'promptTemplate.examSafe': string;
+  'promptTemplate.examSafeDesc': string;
+  'promptTemplate.custom': string;
+  'promptTemplate.customDesc': string;
+  'promptTemplate.customLabel': string;
+  'promptTemplate.customPlaceholder': string;
+  'promptTemplate.customHint': string;
+
+  // Provider config generator
+  'providerGen.desc': string;
+  'providerGen.displayName': string;
+  'providerGen.apiMode': string;
+  'providerGen.providerType': string;
+  'providerGen.openaiCompatible': string;
+  'providerGen.makeDefault': string;
+  'providerGen.copySnippet': string;
+
+  // Diagnostics report
+  'diagnostics.reportTitle': string;
+  'diagnostics.generatedAt': string;
+  'diagnostics.appVersion': string;
+  'diagnostics.connectionMode': string;
+  'diagnostics.proxyService': string;
+  'diagnostics.directConnect': string;
+  'diagnostics.overallResult': string;
+  'diagnostics.passed': string;
+  'diagnostics.hasIssues': string;
+  'diagnostics.result': string;
+  'diagnostics.possibleCause': string;
+  'diagnostics.suggestion': string;
+  'diagnostics.technicalDetail': string;
+  'diagnostics.passedSummary': string;
+  'diagnostics.failedSummary': string;
+  'diagnostics.pass': string;
+  'diagnostics.warn': string;
+  'diagnostics.fail': string;
+  'ocrPreview.confidenceUnknown': string;
+  'ocrPreview.confidenceHigh': string;
+  'ocrPreview.confidenceMedium': string;
+  'ocrPreview.confidenceLow': string;
+  'studyLibrary.exporting': string;
+  'studyLibrary.exported': string;
+  'studyLibrary.exportedGeneric': string;
+  'studyLibrary.exportCancelled': string;
+  'studyLibrary.exportFailed': string;
+  'studyLibrary.importing': string;
+  'studyLibrary.importCancelled': string;
+  'studyLibrary.imported': string;
+  'studyLibrary.importFailed': string;
+  'studyLibrary.modelUnknown': string;
+  'studyLibrary.topicUnknown': string;
+  'studyLibrary.questionTypeUnknown': string;
 }
 
 export type MessageKey = keyof Messages;

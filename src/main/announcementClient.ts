@@ -15,6 +15,7 @@ interface AnnouncementStreamEvent extends Partial<AnnouncementEvent> {
 const INITIAL_RETRY_DELAY_MS = 5000;
 const MAX_RETRY_DELAY_MS = 60000;
 const MAX_CONSECUTIVE_FAILURES = 8;
+const PROXY_REQUEST_TIMEOUT_MS = 10000;
 
 let activeBaseUrl = '';
 let activeWebContents: WebContents | undefined;
@@ -32,13 +33,27 @@ function normalizeBaseUrl(sourceUrl?: string): string {
     return '';
   }
 
+  let url: URL;
+
   try {
-    new URL(baseUrl);
+    url = new URL(baseUrl);
   } catch {
     throw new Error('远程服务地址格式不正确，请填写类似 http://127.0.0.1:8787 的地址。');
   }
 
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('远程服务地址只支持 http 或 https。');
+  }
+
+  if (url.username || url.password) {
+    throw new Error('远程服务地址不能包含用户名或密码。');
+  }
+
   return baseUrl;
+}
+
+function timeoutSignal(milliseconds = PROXY_REQUEST_TIMEOUT_MS): AbortSignal {
+  return AbortSignal.timeout(milliseconds);
 }
 
 function parseEnvelope<T>(text: string): ProxyEnvelope<T> {
@@ -100,7 +115,8 @@ export async function fetchLatestAnnouncement(sourceUrl?: string): Promise<Annou
     const response = await fetch(`${baseUrl}/announcements/latest`, {
       headers: {
         Accept: 'application/json'
-      }
+      },
+      signal: timeoutSignal()
     });
     const text = await response.text();
     const envelope = parseEnvelope<AnnouncementEvent>(text);
@@ -131,7 +147,8 @@ export async function checkProxyHealth(sourceUrl?: string): Promise<ProxyHealthR
     const response = await fetch(`${baseUrl}/health`, {
       headers: {
         Accept: 'application/json'
-      }
+      },
+      signal: timeoutSignal()
     });
     const text = await response.text();
     const envelope = parseEnvelope<{

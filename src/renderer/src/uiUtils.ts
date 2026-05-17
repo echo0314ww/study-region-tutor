@@ -9,6 +9,7 @@ import type {
   TutorSettings
 } from '../../shared/types';
 import type React from 'react';
+import type { MessageKey } from './i18n/types';
 import type { DragState, FloatingPosition, PanelDragState } from './uiTypes';
 import {
   BUILT_IN_PROXY_URL,
@@ -337,7 +338,21 @@ export function announcementCategory(announcement: Announcement): string {
   return isReleaseAnnouncement(announcement) ? '版本公告' : '普通公告';
 }
 
-export function shortcutActionLabel(action: ShortcutAction): string {
+export function shortcutActionLabel(action: ShortcutAction, t?: (key: MessageKey) => string): string {
+  if (t) {
+    const keys: Record<ShortcutAction, MessageKey> = {
+      'start-capture': 'shortcut.startCapture',
+      'cancel-capture': 'shortcut.cancelCapture',
+      'confirm-capture': 'shortcut.confirmCapture',
+      'toggle-result': 'shortcut.toggleResult',
+      'open-settings': 'shortcut.openSettings',
+      'open-announcements': 'shortcut.openAnnouncements',
+      'finish-question': 'shortcut.finishQuestion'
+    };
+
+    return t(keys[action]);
+  }
+
   const labels: Record<ShortcutAction, string> = {
     'start-capture': '开始截图',
     'cancel-capture': '取消截图/关闭当前操作',

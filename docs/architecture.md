@@ -10,6 +10,9 @@ Study Region Tutor 是 Electron + React + TypeScript 桌面应用，用于学习
 
 - `src/main/`：Electron 主进程，负责窗口、截图裁剪、配置读取、API 请求、诊断、导出文件、学习数据备份/恢复和自动更新。
 - `src/preload/`：安全暴露给渲染层的 IPC API。
+- `src/renderer/src/components/`：React UI 组件（SettingsPanel、HistoryPanel、ResultPanel 等）。
+- `src/renderer/src/hooks/`：自定义 Hook（useApiSettings、useExplainSession、useStudyLibrary、useCaptureFlow、useGuides、useDiagnostics、useConfirmDialog）。
+- `src/renderer/src/i18n/`：国际化翻译文件（zh-CN、en）和类型定义，约 500 个消息键。
 - `src/renderer/`：React 渲染层，负责工具栏、截图状态、结果面板、设置面板、公告、设置向导、暗色模式、国际化、错题仪表盘和用户交互。
 - `src/shared/`：主进程、preload、渲染层共享的类型、IPC 名称和纯函数。
 - `server/`：本地代理、公告服务、API 转发和 ngrok 托管脚本。
@@ -92,7 +95,23 @@ API 代理接口需要 Token：
 
 暗色模式通过 `src/renderer/src/useTheme.ts` hook 实现，监听 `settings.theme`（`'light' | 'dark' | 'system'`）和 `prefers-color-scheme` 媒体查询，设置 `document.documentElement.dataset.theme`。CSS 全面使用语义化变量（`--color-bg-*`、`--color-text-*`、`--color-btn-*` 等），`[data-theme="dark"]` 覆写暗色值。
 
-国际化基础设施位于 `src/renderer/src/i18n/`：`LocaleContext` 提供当前语言，`useTranslation()` hook 返回 `t(key, params?)` 函数，支持 `{param}` 插值。翻译文件位于 `zh-CN.ts` 和 `en.ts`，定义约 160 个消息键。`App.tsx` 用 `<LocaleContext.Provider value={settings.language}>` 包裹整个应用。当前语言设置主要控制模型回答和导出语言；界面组件还没有全面接入 `useTranslation()`，后续替换 UI 文案时应复用现有消息键。
+国际化基础设施位于 `src/renderer/src/i18n/`：`LocaleContext` 提供当前语言，`useTranslation()` hook 返回 `t(key, params?)` 函数，支持 `{param}` 插值；非组件 Hook 或 `App.tsx` 中需要按设置语言取文案时使用 `translateMessage(locale, key, params?)`。翻译文件位于 `zh-CN.ts` 和 `en.ts`，定义约 500 个消息键，覆盖核心操作界面、提示、状态和导出反馈。历史版本向导内容位于 `src/renderer/src/guides.ts`，作为版本内容源按中文维护。
+
+## 渲染层 Hook 架构
+
+`App.tsx` 通过自定义 Hook 拆分状态和业务逻辑，主文件仅保留布局编排和组合：
+
+| Hook 文件 | 职责 |
+| --- | --- |
+| `hooks/useApiSettings.ts` | API 连接模式、服务商、模型列表、代理验证 |
+| `hooks/useExplainSession.ts` | 截图讲解、OCR 发送、追问、流式请求管理 |
+| `hooks/useStudyLibrary.ts` | 学习库 CRUD、自动保存、备份导入导出 |
+| `hooks/useCaptureFlow.ts` | 截图模式状态切换、区域确认 |
+| `hooks/useGuides.ts` | 功能向导显隐控制 |
+| `hooks/useDiagnostics.ts` | 一键诊断状态管理 |
+| `hooks/useConfirmDialog.ts` | 确认弹窗（退出、删除、清空） |
+
+其余已有 Hook：`useAnnouncements`（公告订阅）、`usePointerInteractions`（鼠标穿透和拖动）、`useUpdateStatus`（自动更新状态）、`useTheme`（暗色模式）。
 
 ## 错题统计仪表盘
 
@@ -133,8 +152,8 @@ IPC 通道：
 
 Windows 正式发布通过 GitHub Actions 完成，不在本机手动发布 GitHub Release。
 
-- `.github/workflows/ci.yml`：PR 和 `main` 推送时运行文档检查、类型检查、Lint、测试、安全边界检查和构建。
-- `.github/workflows/release-windows.yml`：推送 release tag 时运行，并先校验 tag 必须是 `vX.Y.Z`；通过后执行依赖安装、文档检查、类型检查、Lint、测试、安全边界检查、脚本语法检查和 `npm run publish:win`。
+- `.github/workflows/ci.yml`：PR 和 `main` 推送时运行文档检查、类型检查、Lint、测试、安全边界检查、脚本语法检查和构建。
+- `.github/workflows/release-windows.yml`：推送 release tag 时运行，并先校验 tag 必须是 `vX.Y.Z`；通过后执行依赖安装、文档检查、类型检查、Lint、测试、安全边界检查、脚本语法检查和 `npm run publish:win`。脚本语法检查覆盖 `server/proxy-server.mjs`、`server/ngrok-dev.mjs`、`server/runtime-env.mjs` 和 `scripts/sync-release-notes.mjs`。
 - `.github/workflows/sync-release-notes.yml`：当 `RELEASE_NOTES.md`、同步脚本或工作流变化时，把 `RELEASE_NOTES.md` 中的版本说明同步到已有 GitHub Release。
 - `scripts/sync-release-notes.mjs`：从 `RELEASE_NOTES.md` 读取对应 tag 的说明，并写入 GitHub Release body。
 - `npm run dist`：只用于 GitHub Actions 发布成功后同步本地 `release/` 产物。
@@ -145,6 +164,9 @@ Windows 正式发布通过 GitHub Actions 完成，不在本机手动发布 GitH
 
 - `docs/START_HERE.md`：新账号、新对话或新 Codex 会话接手项目时的唯一入口。
 - `README.md`：快速使用、基础配置、验证和文档入口。
+- `CONTRIBUTING.md`：贡献指南（环境要求、代码规范、PR 流程、文档同步）。
+- `LICENSE`：MIT 许可证。
+- `.env.example`：环境变量配置模板，包含客户端、代理服务和 AI Provider 示例。
 - `docs/documentation-policy.md`：文档更新矩阵、版本材料分工和文档校验规则。
 - `CHANGELOG.md`：开发者视角的版本变化。
 - `RELEASE_NOTES.md`：普通用户可读的版本说明，会同步到 GitHub Releases。
@@ -158,6 +180,9 @@ Windows 正式发布通过 GitHub Actions 完成，不在本机手动发布 GitH
 - `docs/announcements.md`：公告文件格式、版本公告和客户端展示规则。
 - `docs/proxy-config.example.env`：代理服务、多 Token、限流和多协议 API 服务商的配置模板。
 - `docs/dev-log/YYYY-MM-DD.md`：重要实施过程记录。
-- `docs/decisions/`：架构决策记录。
+- `docs/decisions/`：架构决策记录（含 Hook 架构拆分、GitHub Actions 发布、敏感配置边界、向导更新策略、代理安全边界）。
 - `docs/templates/`：常用文档模板。
+- `.github/workflows/`：CI、Windows 发布和 Release Notes 同步工作流。
+- `.github/pull_request_template.md`：PR 模板。
+- `.github/dependabot.yml`：Dependabot 依赖更新配置。
 - `announcements/releases.json`：可推送给客户端的版本更新公告。

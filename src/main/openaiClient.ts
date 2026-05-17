@@ -65,6 +65,8 @@ interface ApiConnectionConfig {
 }
 
 const LOCAL_ENV_HINT = '用户配置目录的 .env.local';
+const MODEL_LIST_TIMEOUT_MS = 30000;
+const API_REQUEST_TIMEOUT_MS = 120000;
 
 class ThirdPartyApiError extends Error {
   constructor(
@@ -401,6 +403,12 @@ function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function withTimeoutSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+}
+
 
 function apiDisplayName(config: { providerName?: string }): string {
   return config.providerName ? `第三方 API「${config.providerName}」` : '第三方 API';
@@ -434,10 +442,12 @@ function requestHeadersFor(
   return headers;
 }
 
-async function fetchModelOptionsFromEndpoint(config: ApiConnectionConfig, endpoint: string): Promise<ModelOption[]> {
+async function fetchModelOptionsFromEndpoint(config: ApiConnectionConfig, endpoint: string, signal?: AbortSignal): Promise<ModelOption[]> {
+  throwIfAborted(signal);
   const response = await fetch(endpoint, {
     method: 'GET',
-    headers: requestHeadersFor(config, 'application/json', false)
+    headers: requestHeadersFor(config, 'application/json', false),
+    signal: withTimeoutSignal(signal, MODEL_LIST_TIMEOUT_MS)
   });
   const text = await response.text();
   let data: unknown;
@@ -467,7 +477,7 @@ async function fetchModelOptionsFromEndpoint(config: ApiConnectionConfig, endpoi
   return extractModelOptions(data);
 }
 
-export async function listAvailableModels(settings: TutorSettings): Promise<ModelListResult> {
+export async function listAvailableModels(settings: TutorSettings, signal?: AbortSignal): Promise<ModelListResult> {
   const config = resolveApiConnectionConfig(settings);
   const candidates = modelsEndpointCandidates(config.baseUrl, config.apiProviderType);
   let lastError: unknown;
@@ -475,7 +485,7 @@ export async function listAvailableModels(settings: TutorSettings): Promise<Mode
   for (const endpoint of candidates) {
     try {
       return {
-        models: await fetchModelOptionsFromEndpoint(config, endpoint)
+        models: await fetchModelOptionsFromEndpoint(config, endpoint, signal)
       };
     } catch (error) {
       lastError = error;
@@ -498,7 +508,7 @@ async function postJson(config: ApiConfig, body: unknown, signal?: AbortSignal):
     method: 'POST',
     headers: requestHeadersFor(config),
     body: JSON.stringify(body),
-    signal
+    signal: withTimeoutSignal(signal, API_REQUEST_TIMEOUT_MS)
   });
 
   const text = await response.text();
@@ -583,7 +593,7 @@ async function postJsonStream(
     method: 'POST',
     headers: requestHeadersFor(config, 'text/event-stream'),
     body: JSON.stringify(streamRequestBodyFor(config, body)),
-    signal
+    signal: withTimeoutSignal(signal, API_REQUEST_TIMEOUT_MS)
   });
 
   if (!response.ok) {
@@ -1700,9 +1710,13 @@ export async function explainRecognizedTextWithMetadata(
     const fallbackConfig = withoutReasoning(config);
 
     answer =
-      fallbackConfig.apiMode === 'responses'
-        ? await explainTextWithResponses(trimmed, settings, fallbackConfig, signal, onDelta)
-        : await explainTextWithChatCompletions(trimmed, settings, fallbackConfig, signal, onDelta);
+      fallbackConfig.apiProviderType === 'gemini'
+        ? await explainTextWithGemini(trimmed, settings, fallbackConfig, signal, onDelta)
+        : fallbackConfig.apiProviderType === 'anthropic'
+          ? await explainTextWithAnthropic(trimmed, settings, fallbackConfig, signal, onDelta)
+          : fallbackConfig.apiMode === 'responses'
+            ? await explainTextWithResponses(trimmed, settings, fallbackConfig, signal, onDelta)
+            : await explainTextWithChatCompletions(trimmed, settings, fallbackConfig, signal, onDelta);
   }
 
   if (!answer.text) {

@@ -41,6 +41,36 @@ export const STUDY_REVIEW_GRADE_LABELS: Record<StudyReviewGrade, string> = {
   easy: '很熟练'
 };
 
+export function localizedSubjectLabel(subject: StudySubject, t: (key: string) => string): string {
+  const keys: Record<StudySubject, string> = {
+    general: 'subject.general', math: 'subject.math', english: 'subject.english',
+    physics: 'subject.physics', programming: 'subject.programming'
+  };
+  return t(keys[subject]);
+}
+
+export function localizedStatusLabel(status: StudyItemStatus, t: (key: string) => string): string {
+  const keys: Record<StudyItemStatus, string> = {
+    new: 'status.new', reviewing: 'status.reviewing', mastered: 'status.mastered'
+  };
+  return t(keys[status]);
+}
+
+export function localizedDifficultyLabel(difficulty: StudyDifficulty, t: (key: string) => string): string {
+  const keys: Record<StudyDifficulty, string> = {
+    easy: 'difficulty.easy', normal: 'difficulty.normal', hard: 'difficulty.hard'
+  };
+  return t(keys[difficulty]);
+}
+
+export function localizedReviewGradeLabel(grade: StudyReviewGrade, t: (key: string) => string): string {
+  const keys: Record<StudyReviewGrade, string> = {
+    again: 'studyItem.reviewWrong', hard: 'studyItem.reviewHard',
+    good: 'studyItem.reviewGood', easy: 'studyItem.reviewEasy'
+  };
+  return t(keys[grade]);
+}
+
 export const STUDY_SUBJECTS = Object.keys(STUDY_SUBJECT_LABELS) as StudySubject[];
 export const STUDY_STATUSES = Object.keys(STUDY_STATUS_LABELS) as StudyItemStatus[];
 export const STUDY_DIFFICULTIES = Object.keys(STUDY_DIFFICULTY_LABELS) as StudyDifficulty[];
@@ -126,7 +156,7 @@ function sanitizeTurn(raw: unknown): UiConversationTurn | undefined {
   }
 
   return {
-    id: safeString(raw.id) || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    id: safeString(raw.id) || crypto.randomUUID(),
     role,
     content
   };

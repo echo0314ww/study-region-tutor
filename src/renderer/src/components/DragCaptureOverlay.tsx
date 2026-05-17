@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type { RegionBounds } from '../../../shared/types';
 import { DRAG_CAPTURE_CANCEL_DISTANCE } from '../constants';
+import { useTranslation } from '../i18n';
 
 interface DragCaptureOverlayProps {
   onCancel: () => void;
@@ -47,6 +48,7 @@ function dragDistance(first: Point, second: Point): number {
 }
 
 export function DragCaptureOverlay({ onCancel, onCapture }: DragCaptureOverlayProps): JSX.Element {
+  const { t } = useTranslation();
   const [drag, setDrag] = useState<DragCaptureState | null>(null);
   const previewRegion = useMemo(() => (drag ? regionFromPoints(drag.start, drag.current) : null), [drag]);
 
@@ -158,7 +160,7 @@ export function DragCaptureOverlay({ onCancel, onCapture }: DragCaptureOverlayPr
           <div className="drag-capture-shade bottom" style={{ top: previewRegion.y + previewRegion.height }} />
           <section
             className="drag-capture-selection"
-            aria-label="截图区域"
+            aria-label={t('capture.regionLabel')}
             style={{
               transform: `translate(${previewRegion.x}px, ${previewRegion.y}px)`,
               width: previewRegion.width,
